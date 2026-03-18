@@ -5,7 +5,6 @@ import ctypes
 import time
 from smvScope import lib61850
 import json
-from datetime import datetime
 import types
 
 from flask import Flask, Response, render_template, request
@@ -473,6 +472,3 @@ def start ():
 
 if __name__ == "__main__":
     start()
-
-
-

@@ -51,6 +51,11 @@
         font-size: 24px;
         line-height: 1.2;
       }
+
+      .phasor-toggle {
+        margin: 16px 0 4px;
+      }
+
     </style>
 <!--suppress JSUnresolvedLibraryURL -->
 <script src="static/jquery.min.js"></script>
@@ -125,8 +130,8 @@ function createChartConfig(title, yAxisLabel) {
   };
 }
 
-var currentConfig = createChartConfig('Current', 'current');
-var voltageConfig = createChartConfig('Voltage', 'voltage');
+var currentConfig = createChartConfig('Current', 'Current (A)');
+var voltageConfig = createChartConfig('Voltage', 'Voltage (V)');
 </script>
 </head>
 <body>
@@ -157,23 +162,31 @@ var voltageConfig = createChartConfig('Voltage', 'voltage');
             <canvas id="voltageChart" style="height: 320px;"></canvas>
           </div>
           <div class="mt-3">
+            <div class="form-check phasor-toggle">
+              <input type="checkbox" class="form-check-input" id="showCurrentSequenceComponents" autocomplete="off">
+              <label class="form-check-label" for="showCurrentSequenceComponents">Toggle current sequence components</label>
+            </div>
             <div class="phasor-row">
               <div class="phasor-canvas-wrap">
                 <canvas id="currentPhasorChart" style="height: 320px;"></canvas>
               </div>
               <div class="meter-panel">
-                <div class="meter-title">Current RMS</div>
+                <div class="meter-title" id="currentMeterTitle">Current RMS</div>
                 <div id="currentRmsMeter"></div>
               </div>
             </div>
           </div>
           <div class="mt-3">
+            <div class="form-check phasor-toggle">
+              <input type="checkbox" class="form-check-input" id="showVoltageSequenceComponents" autocomplete="off">
+              <label class="form-check-label" for="showVoltageSequenceComponents">Toggle voltage sequence components</label>
+            </div>
             <div class="phasor-row">
               <div class="phasor-canvas-wrap">
                 <canvas id="voltagePhasorChart" style="height: 320px;"></canvas>
               </div>
               <div class="meter-panel">
-                <div class="meter-title">Voltage RMS</div>
+                <div class="meter-title" id="voltageMeterTitle">Voltage RMS</div>
                 <div id="voltageRmsMeter"></div>
               </div>
             </div>
@@ -203,6 +216,15 @@ var chartColors = {
 var color = Chart.helpers.color;
 
 var colorNames = Object.keys(chartColors);
+var hasAppliedDefaultStreamSelection = false;
+var defaultSelectedChannels = {
+  '0': true,
+  '1': true,
+  '2': true,
+  '4': true,
+  '5': true,
+  '6': true,
+};
 
 function getChartState(channel) {
   if (parseInt(channel, 10) < 4) {
@@ -242,6 +264,33 @@ function addDataset(chartState, label) {
   chartState.config.data.datasets.push(newDataset);
   chartState.chart.update();
   return newDataset;
+}
+
+function applyDefaultStreamSelection() {
+  if (hasAppliedDefaultStreamSelection) {
+    return;
+  }
+
+  var streamSelect = document.getElementById('streamValue');
+  if (!streamSelect || streamSelect.options.length === 0 || streamSelect.selectedOptions.length > 0) {
+    return;
+  }
+
+  var selectedAny = false;
+  for (var option of streamSelect.options) {
+    var parts = option.text.split(',');
+    var channel = parts.length > 1 ? parts[parts.length - 1].trim() : '';
+    if (defaultSelectedChannels[channel]) {
+      option.selected = true;
+      $(option).attr('selected', 'true');
+      selectedAny = true;
+    }
+  }
+
+  if (selectedAny) {
+    hasAppliedDefaultStreamSelection = true;
+    sendChangeMultiple(streamSelect.options[0]);
+  }
 }
 
 function sendChange(ref)
@@ -363,7 +412,7 @@ function getChannelRmsMagnitude(samples, channel, yAxisScale) {
   return Math.sqrt(sumSquares / sampleCount);
 }
 
-function getChannelPhaseAngle(samples, channel, yAxisScale) {
+function getChannelPhasor(samples, channel, yAxisScale) {
   var real = 0;
   var imag = 0;
   var sampleRate = parseInt(maxSampleCount, 10);
@@ -380,11 +429,114 @@ function getChannelPhaseAngle(samples, channel, yAxisScale) {
     }
   });
 
-  if (real === 0 && imag === 0) {
-    return 0;
+  var magnitude = getChannelRmsMagnitude(samples, channel, yAxisScale);
+  if (magnitude === 0 || (real === 0 && imag === 0)) {
+    return {
+      magnitude: magnitude,
+      angle: 0,
+      real: 0,
+      imag: 0,
+    };
   }
 
-  return Math.atan2(imag, real) * 180 / Math.PI;
+  var angle = Math.atan2(imag, real) * 180 / Math.PI;
+  var angleRad = angle * Math.PI / 180;
+
+  return {
+    magnitude: magnitude,
+    angle: angle,
+    real: magnitude * Math.cos(angleRad),
+    imag: magnitude * Math.sin(angleRad),
+  };
+}
+
+function createPhasorEntry(label, channel, phasor, colorOverride) {
+  return {
+    label: label,
+    channel: channel,
+    magnitude: phasor.magnitude,
+    angle: phasor.angle,
+    color: colorOverride,
+  };
+}
+
+function complexAdd(a, b) {
+  return {
+    real: a.real + b.real,
+    imag: a.imag + b.imag,
+  };
+}
+
+function complexMultiply(a, b) {
+  return {
+    real: a.real * b.real - a.imag * b.imag,
+    imag: a.real * b.imag + a.imag * b.real,
+  };
+}
+
+function complexDivide(value, divisor) {
+  return {
+    real: value.real / divisor,
+    imag: value.imag / divisor,
+  };
+}
+
+function complexFromPolar(magnitude, angleDeg) {
+  var angleRad = angleDeg * Math.PI / 180;
+  return {
+    real: magnitude * Math.cos(angleRad),
+    imag: magnitude * Math.sin(angleRad),
+  };
+}
+
+function complexToPhasor(value) {
+  return {
+    magnitude: Math.sqrt(value.real * value.real + value.imag * value.imag),
+    angle: Math.atan2(value.imag, value.real) * 180 / Math.PI,
+    real: value.real,
+    imag: value.imag,
+  };
+}
+
+function getSequenceColor(sequenceType, type) {
+  if (sequenceType === 'positive') {
+    return type === 'voltage' ? 'rgb(0, 70, 255)' : 'rgb(255, 0, 0)';
+  }
+  if (sequenceType === 'negative') {
+    return 'rgb(255, 140, 0)';
+  }
+  return 'rgb(120, 120, 120)';
+}
+
+function getPhasorColor(phasor, type) {
+  if (phasor.color) {
+    return phasor.color;
+  }
+
+  return getPhaseColor(phasor.channel, type);
+}
+
+function buildSequenceComponents(phasePhasors, type, streamId, streamCount) {
+  if (phasePhasors.length < 3) {
+    return [];
+  }
+
+  var operatorA = complexFromPolar(1, 120);
+  var operatorA2 = complexFromPolar(1, 240);
+  var va = { real: phasePhasors[0].real, imag: phasePhasors[0].imag };
+  var vb = { real: phasePhasors[1].real, imag: phasePhasors[1].imag };
+  var vc = { real: phasePhasors[2].real, imag: phasePhasors[2].imag };
+  var zero = complexDivide(complexAdd(complexAdd(va, vb), vc), 3);
+  var positive = complexDivide(complexAdd(complexAdd(va, complexMultiply(operatorA, vb)), complexMultiply(operatorA2, vc)), 3);
+  var negative = complexDivide(complexAdd(complexAdd(va, complexMultiply(operatorA2, vb)), complexMultiply(operatorA, vc)), 3);
+  var labelPrefix = streamCount > 1 ? ('S' + streamId + ' ') : '';
+  var quantityLabel = type === 'voltage' ? 'V' : 'I';
+
+  return [
+    createPhasorEntry(labelPrefix + quantityLabel + '+', phasePhasors[0].channel, complexToPhasor(positive), getSequenceColor('positive', type)),
+    createPhasorEntry(labelPrefix + quantityLabel + '-', phasePhasors[1].channel, complexToPhasor(negative), getSequenceColor('negative', type)),
+    createPhasorEntry(labelPrefix + quantityLabel + '0', phasePhasors[2].channel, complexToPhasor(zero), getSequenceColor('zero', type)),
+  ];
 }
 
 function drawArrow(ctx, startX, startY, endX, endY, strokeStyle) {
@@ -486,7 +638,7 @@ function renderPhasorView(canvas, title, phasors, unit, type) {
     var normalizedMagnitude = phasor.magnitude / maxMagnitude;
     var endX = grid.centerX + grid.radius * normalizedMagnitude * Math.cos(angleRad);
     var endY = grid.centerY - grid.radius * normalizedMagnitude * Math.sin(angleRad);
-    var phaseColor = getPhaseColor(phasor.channel, type);
+    var phaseColor = getPhasorColor(phasor, type);
 
     ctx.fillStyle = phaseColor;
     drawArrow(ctx, grid.centerX, grid.centerY, endX, endY, phaseColor);
@@ -507,13 +659,48 @@ function renderRmsMeter(elementId, phasors, unit) {
 
   var html = '';
   phasors.forEach(function(phasor) {
-    var phaseColor = getPhaseColor(phasor.channel, unit === 'V' ? 'voltage' : 'current');
+    var phaseColor = getPhasorColor(phasor, unit === 'V' ? 'voltage' : 'current');
     html += '<div class="meter-value">';
     html += '<div class="meter-label" style="color:' + phaseColor + ';">' + phasor.label + '</div>';
     html += '<div class="meter-reading">' + phasor.magnitude.toFixed(2) + ' ' + unit + '</div>';
     html += '</div>';
   });
   meter.innerHTML = html;
+}
+
+function updatePhasorTitles(showCurrentSequenceComponents, showVoltageSequenceComponents) {
+  document.getElementById('currentMeterTitle').textContent = showCurrentSequenceComponents ? 'Current Sequence Components' : 'Current RMS';
+  document.getElementById('voltageMeterTitle').textContent = showVoltageSequenceComponents ? 'Voltage Sequence Components' : 'Voltage RMS';
+}
+
+var latestCurrentPhasors = [];
+var latestVoltagePhasors = [];
+var latestCurrentSequencePhasors = [];
+var latestVoltageSequencePhasors = [];
+
+function renderPhasorPanels() {
+  var showCurrentSequenceComponents = document.getElementById('showCurrentSequenceComponents').checked;
+  var showVoltageSequenceComponents = document.getElementById('showVoltageSequenceComponents').checked;
+  var currentDisplayPhasors = showCurrentSequenceComponents ? latestCurrentSequencePhasors : latestCurrentPhasors;
+  var voltageDisplayPhasors = showVoltageSequenceComponents ? latestVoltageSequencePhasors : latestVoltagePhasors;
+
+  updatePhasorTitles(showCurrentSequenceComponents, showVoltageSequenceComponents);
+  renderPhasorView(
+    document.getElementById('currentPhasorChart'),
+    showCurrentSequenceComponents ? 'Current Sequence Components' : 'Current Phasor View',
+    currentDisplayPhasors,
+    'A',
+    'current'
+  );
+  renderPhasorView(
+    document.getElementById('voltagePhasorChart'),
+    showVoltageSequenceComponents ? 'Voltage Sequence Components' : 'Voltage Phasor View',
+    voltageDisplayPhasors,
+    'V',
+    'voltage'
+  );
+  renderRmsMeter('currentRmsMeter', currentDisplayPhasors, 'A');
+  renderRmsMeter('voltageRmsMeter', voltageDisplayPhasors, 'V');
 }
 
 window.onload = function() {
@@ -525,6 +712,8 @@ window.onload = function() {
   const voltageCtx = document.getElementById('voltageChart').getContext('2d');
   window.currentChart = new Chart(currentCtx, currentConfig);
   window.voltageChart = new Chart(voltageCtx, voltageConfig);
+  document.getElementById('showCurrentSequenceComponents').addEventListener('change', renderPhasorPanels);
+  document.getElementById('showVoltageSequenceComponents').addEventListener('change', renderPhasorPanels);
 
   updateMaxSampleCount();
 
@@ -548,8 +737,13 @@ window.onload = function() {
     var usedVoltage = [];
     var currentPhasors = [];
     var voltagePhasors = [];
+    var currentSequencePhasors = [];
+    var voltageSequencePhasors = [];
+    var streamCount = Object.keys(cdata['dataSets']).length;
     for(var svID in cdata['dataSets']) { //streams
       var streamSamples = cdata['dataSets'][svID];
+      var currentPhasePhasors = [];
+      var voltagePhasePhasors = [];
       for(var channel in cdata['dataSets'][svID][0]['channels']) {
         var chartState = getChartState(channel);
         var dset = 'Dataset ' + svID + ',' + channel; //derive label from key stream/channel values
@@ -594,36 +788,49 @@ window.onload = function() {
           });
         }
 
-        var phasorMagnitude = getChannelRmsMagnitude(streamSamples, channel, chartState.yAxisScale);
-        var phasorAngle = getChannelPhaseAngle(streamSamples, channel, chartState.yAxisScale);
-        if (phasorMagnitude > 0) {
+        var phasor = getChannelPhasor(streamSamples, channel, chartState.yAxisScale);
+        if (phasor.magnitude > 0) {
           if (parseInt(channel, 10) < 4) {
-            currentPhasors.push({
-              label: getPhasorLabel(channel, 'current'),
-              channel: channel,
-              magnitude: phasorMagnitude,
-              angle: phasorAngle,
-            });
+            currentPhasors.push(createPhasorEntry(getPhasorLabel(channel, 'current'), channel, phasor));
+            if (parseInt(channel, 10) < 3) {
+              currentPhasePhasors.push({
+                channel: channel,
+                real: phasor.real,
+                imag: phasor.imag,
+              });
+            }
           }
           else {
-            voltagePhasors.push({
-              label: getPhasorLabel(channel, 'voltage'),
-              channel: channel,
-              magnitude: phasorMagnitude,
-              angle: phasorAngle,
-            });
+            voltagePhasors.push(createPhasorEntry(getPhasorLabel(channel, 'voltage'), channel, phasor));
+            if (parseInt(channel, 10) < 7) {
+              voltagePhasePhasors.push({
+                channel: channel,
+                real: phasor.real,
+                imag: phasor.imag,
+              });
+            }
           }
         }
       }
+
+      currentPhasePhasors.sort(function(a, b) {
+        return parseInt(a.channel, 10) - parseInt(b.channel, 10);
+      });
+      voltagePhasePhasors.sort(function(a, b) {
+        return parseInt(a.channel, 10) - parseInt(b.channel, 10);
+      });
+      currentSequencePhasors = currentSequencePhasors.concat(buildSequenceComponents(currentPhasePhasors, 'current', svID, streamCount));
+      voltageSequencePhasors = voltageSequencePhasors.concat(buildSequenceComponents(voltagePhasePhasors, 'voltage', svID, streamCount));
     }
     currentConfig.data.datasets = usedCurrent;
     voltageConfig.data.datasets = usedVoltage;
     window.currentChart.update();
     window.voltageChart.update();
-    renderPhasorView(document.getElementById('currentPhasorChart'), 'Current Phasor View', currentPhasors, 'A', 'current');
-    renderPhasorView(document.getElementById('voltagePhasorChart'), 'Voltage Phasor View', voltagePhasors, 'V', 'voltage');
-    renderRmsMeter('currentRmsMeter', currentPhasors, 'A');
-    renderRmsMeter('voltageRmsMeter', voltagePhasors, 'V');
+    latestCurrentPhasors = currentPhasors;
+    latestVoltagePhasors = voltagePhasors;
+    latestCurrentSequencePhasors = currentSequencePhasors;
+    latestVoltageSequencePhasors = voltageSequencePhasors;
+    renderPhasorPanels();
   }
   
   const log_source = new EventSource("/log-data");
@@ -686,6 +893,7 @@ window.onload = function() {
         }
       } 
     }
+    applyDefaultStreamSelection();
   }
 
   refresh();
