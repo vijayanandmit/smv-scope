@@ -6,13 +6,16 @@ import time
 from smvScope import lib61850
 import json
 import types
+import io
+import zipfile
 
-from flask import Flask, Response, render_template, request
+from flask import Flask, Response, render_template, request, send_file
 
 import socket
-from struct import unpack
+from struct import unpack, pack
 import threading
 import binascii
+from datetime import datetime
 
 application = Flask(__name__)
 
@@ -274,6 +277,202 @@ def stream_data_g():
 @application.route('/stream-data')
 def stream_data():
     return Response(stream_data_g(), mimetype='text/event-stream')
+
+
+def _sanitize_filename_part(value):
+    return ''.join(ch if ch.isalnum() or ch in ('-', '_') else '_' for ch in value).strip('_') or 'stream'
+
+
+def _get_selected_stream_channels():
+    selected = {}
+    for item in subscribers_list:
+        try:
+            stream = streamList[int(item) - 1].split(',')
+            svID = stream[0]
+            channel = int(stream[1])
+        except (IndexError, ValueError):
+            continue
+        selected.setdefault(svID, set()).add(channel)
+    return selected
+
+
+def _get_latest_complete_samples(svID):
+    if svID not in sec_counter or sec_counter[svID] < 2 or svID not in smv_data:
+        return []
+    latest_second = sec_counter[svID] - 1
+    return smv_data[svID].get(latest_second, [])
+
+
+def _estimate_sample_rate(samples, metadata):
+    if metadata and 'smpRate' in metadata:
+        try:
+            return int(metadata['smpRate'])
+        except (TypeError, ValueError):
+            pass
+
+    sample_numbers = [sample.get('x', 0) for sample in samples]
+    max_sample = max(sample_numbers) if sample_numbers else 0
+    if max_sample in (4000, 4800):
+        return max_sample
+    if len(samples) in (4000, 4800):
+        return len(samples)
+    return max_sample or len(samples) or 4000
+
+
+def _estimate_nominal_frequency(sample_rate):
+    if sample_rate == 4000:
+        return 50
+    if sample_rate == 4800:
+        return 60
+    return 0
+
+
+def _channel_scaling(values):
+    if not values:
+        return 1.0, 0.0, -32767, 32767
+
+    minimum = min(values)
+    maximum = max(values)
+    if minimum == maximum:
+        return 1.0, 0.0, minimum, maximum
+
+    offset = (maximum + minimum) / 2.0
+    scale = (maximum - minimum) / 65534.0
+    if scale == 0:
+        scale = 1.0
+    return scale, offset, minimum, maximum
+
+
+def _build_cfg_text(station_name, recorder_id, revision_year, analog_channels, sample_rate, start_time, trigger_time, data_format):
+    analog_count = len(analog_channels)
+    lines = []
+    if revision_year == '1991':
+        lines.append(f"{station_name},{recorder_id}")
+    else:
+        lines.append(f"{station_name},{recorder_id},{revision_year}")
+
+    lines.append(f"{analog_count},{analog_count}A,0D")
+
+    for index, channel in enumerate(analog_channels, start=1):
+        lines.append(
+            f"{index},{channel['name']},,,V,{channel['a']:.12g},{channel['b']:.12g},0,"
+            f"{channel['minimum']:.12g},{channel['maximum']:.12g},1,1,P"
+        )
+
+    lines.append(f"{_estimate_nominal_frequency(sample_rate)}")
+    lines.append("1")
+    lines.append(f"{sample_rate},{len(channel['samples']) if analog_channels else 0}")
+    lines.append(start_time.strftime("%m/%d/%Y,%H:%M:%S.%f"))
+    lines.append(trigger_time.strftime("%m/%d/%Y,%H:%M:%S.%f"))
+    lines.append(data_format)
+    lines.append("1")
+    return "\n".join(lines) + "\n"
+
+
+def _build_ascii_dat(analog_channels, sample_rate):
+    rows = []
+    sample_count = len(analog_channels[0]['samples']) if analog_channels else 0
+    for sample_index in range(sample_count):
+        timestamp_us = int(round(sample_index * 1000000.0 / sample_rate))
+        values = [
+            str(analog_channels[channel_index]['samples'][sample_index])
+            for channel_index in range(len(analog_channels))
+        ]
+        rows.append(",".join([str(sample_index + 1), str(timestamp_us)] + values))
+    return ("\n".join(rows) + "\n").encode('ascii')
+
+
+def _build_binary_dat(analog_channels, sample_rate):
+    payload = bytearray()
+    sample_count = len(analog_channels[0]['samples']) if analog_channels else 0
+
+    for sample_index in range(sample_count):
+        timestamp_us = int(round(sample_index * 1000000.0 / sample_rate))
+        payload.extend(pack('<ii', sample_index + 1, timestamp_us))
+        for channel in analog_channels:
+            raw = int(round((channel['samples'][sample_index] - channel['b']) / channel['a'])) if channel['a'] != 0 else 0
+            raw = max(-32767, min(32767, raw))
+            payload.extend(pack('<h', raw))
+    return bytes(payload)
+
+
+@application.route('/export-comtrade', methods=['POST'])
+def export_comtrade():
+    payload = request.get_json(silent=True) or {}
+    revision_year = str(payload.get('standard', '2013'))
+    data_format = str(payload.get('format', 'ASCII')).upper()
+
+    if revision_year not in ('1991', '1999', '2013'):
+        return json.dumps({'success': False, 'error': 'Unsupported COMTRADE standard'}), 400, {'ContentType': 'application/json'}
+    if data_format not in ('ASCII', 'BINARY'):
+        return json.dumps({'success': False, 'error': 'Unsupported COMTRADE data format'}), 400, {'ContentType': 'application/json'}
+
+    selected = _get_selected_stream_channels()
+    if not selected:
+        return json.dumps({'success': False, 'error': 'Select at least one stream/channel before exporting'}), 400, {'ContentType': 'application/json'}
+
+    analog_channels = []
+    sample_rate = None
+    for svID in sorted(selected):
+        samples = _get_latest_complete_samples(svID)
+        if not samples:
+            continue
+
+        metadata = streamInfo.get(svID, {})
+        current_sample_rate = _estimate_sample_rate(samples, metadata)
+        if sample_rate is None:
+            sample_rate = current_sample_rate
+
+        channel_samples = {}
+        for sample in samples:
+            for channel, channel_data in sample.get('channels', {}).items():
+                channel_index = int(channel)
+                if channel_index in selected[svID]:
+                    channel_samples.setdefault(channel_index, []).append(channel_data['y'])
+
+        for channel in sorted(channel_samples):
+            values = channel_samples[channel]
+            if not values:
+                continue
+            a, b, minimum, maximum = _channel_scaling(values)
+            analog_channels.append({
+                'name': f"{svID}_ch{channel}",
+                'samples': values,
+                'a': a,
+                'b': b,
+                'minimum': minimum,
+                'maximum': maximum,
+            })
+
+    if not analog_channels:
+        return json.dumps({'success': False, 'error': 'No completed samples available yet for the selected streams/channels'}), 400, {'ContentType': 'application/json'}
+
+    min_length = min(len(channel['samples']) for channel in analog_channels)
+    analog_channels = [
+        {**channel, 'samples': channel['samples'][:min_length]}
+        for channel in analog_channels
+    ]
+    sample_rate = sample_rate or 4000
+
+    export_time = datetime.now()
+    station_name = 'smvScope'
+    recorder_id = 'SMV'
+    base_name = f"smvscope_{revision_year}_{data_format.lower()}_{export_time.strftime('%Y%m%d_%H%M%S')}"
+    cfg_text = _build_cfg_text(station_name, recorder_id, revision_year, analog_channels, sample_rate, export_time, export_time, data_format)
+    dat_content = _build_ascii_dat(analog_channels, sample_rate) if data_format == 'ASCII' else _build_binary_dat(analog_channels, sample_rate)
+
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(f"{base_name}.cfg", cfg_text)
+        zf.writestr(f"{base_name}.dat", dat_content)
+    archive.seek(0)
+
+    return send_file(
+        archive,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name=f"{_sanitize_filename_part(base_name)}.zip"
+    )
 
 def print_to_log(message):
     global log_list

@@ -56,6 +56,29 @@
         margin: 16px 0 4px;
       }
 
+      .stream-toolbar {
+        display: flex;
+        gap: 16px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+
+      .stream-selector-wrap {
+        flex: 1 1 auto;
+      }
+
+      .comtrade-export-panel {
+        width: 260px;
+        border: 1px solid #d8d8d8;
+        border-radius: 6px;
+        padding: 12px;
+        background: #fafafa;
+      }
+
+      .comtrade-export-panel .btn {
+        width: 100%;
+      }
+
     </style>
 <!--suppress JSUnresolvedLibraryURL -->
 <script src="static/jquery.min.js"></script>
@@ -139,9 +162,31 @@ var voltageConfig = createChartConfig('Voltage', 'Voltage (V)');
     <div class="row">
         <div class="col-12">
           <div class="form-group">
-            <label for="streamValue">List of available streams/channels: (click to visualise one or more stream/channels)</label>
-            <select class="mdb-select colorful-select md-form custom-select" multiple id="streamValue" style="height: 200px;">
-            </select>
+            <div class="stream-toolbar">
+              <div class="stream-selector-wrap">
+                <label for="streamValue">List of available streams/channels: (click to visualise one or more stream/channels)</label>
+                <select class="mdb-select colorful-select md-form custom-select" multiple id="streamValue" style="height: 200px;">
+                </select>
+              </div>
+              <div class="comtrade-export-panel">
+                <div class="form-group mb-2">
+                  <label for="comtradeStandard">COMTRADE standard</label>
+                  <select class="custom-select" id="comtradeStandard">
+                    <option value="1991">IEEE Std C37.111-1991</option>
+                    <option value="1999">IEC 60255-24:1999</option>
+                    <option value="2013" selected>IEC 60255-24:2013</option>
+                  </select>
+                </div>
+                <div class="form-group mb-3">
+                  <label for="comtradeFormat">Data format</label>
+                  <select class="custom-select" id="comtradeFormat">
+                    <option value="ASCII" selected>ASCII</option>
+                    <option value="BINARY">Binary</option>
+                  </select>
+                </div>
+                <button type="button" class="btn btn-primary" id="exportComtradeButton">Export Comtrade</button>
+              </div>
+            </div>
             <div class="form-check form-switch">
               <input type="checkbox" class="form-check-input" id="enableListener" autocomplete="off" 
                 style="height: 30px; display: flex; align-items: center;" onchange="sendChange(this)">
@@ -330,6 +375,52 @@ function refresh()
           console.log(res);
       }
   });
+}
+
+function exportComtrade() {
+  var standard = document.getElementById('comtradeStandard').value;
+  var format = document.getElementById('comtradeFormat').value;
+
+  fetch('/export-comtrade', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      standard: standard,
+      format: format,
+    }),
+  })
+    .then(async function(response) {
+      if (!response.ok) {
+        var errorMessage = 'COMTRADE export failed';
+        try {
+          var errorPayload = await response.json();
+          if (errorPayload && errorPayload.error) {
+            errorMessage = errorPayload.error;
+          }
+        }
+        catch (error) {
+        }
+        throw new Error(errorMessage);
+      }
+
+      return response.blob();
+    })
+    .then(function(blob) {
+      var objectUrl = window.URL.createObjectURL(blob);
+      var link = document.createElement('a');
+      var fallbackName = 'smvscope-comtrade.zip';
+      link.href = objectUrl;
+      link.download = fallbackName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(objectUrl);
+    })
+    .catch(function(error) {
+      alert(error.message);
+    });
 }
 
 function sendChangeMultiple(ref)
@@ -714,6 +805,7 @@ window.onload = function() {
   window.voltageChart = new Chart(voltageCtx, voltageConfig);
   document.getElementById('showCurrentSequenceComponents').addEventListener('change', renderPhasorPanels);
   document.getElementById('showVoltageSequenceComponents').addEventListener('change', renderPhasorPanels);
+  document.getElementById('exportComtradeButton').addEventListener('click', exportComtrade);
 
   updateMaxSampleCount();
 
