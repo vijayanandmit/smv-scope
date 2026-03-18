@@ -811,7 +811,7 @@ del loaderclass
 add_library_search_dirs([])
 
 # Begin libraries
-_libs["libiec61850.so.1.4.2"] = load_library("libiec61850.so.1.4.2")
+_libs["libiec61850.so.1.4.2"] = load_library("libiec61850.so")
 
 # 1 libraries
 # End libraries

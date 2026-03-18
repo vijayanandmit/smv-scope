@@ -4,6 +4,54 @@
     <meta charset="UTF-8">
     <title>smvScope</title>
     <link href="static/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+      .phasor-row {
+        display: flex;
+        gap: 16px;
+        align-items: stretch;
+      }
+
+      .phasor-canvas-wrap {
+        flex: 1 1 auto;
+      }
+
+      .meter-panel {
+        width: 220px;
+        border: 1px solid #d8d8d8;
+        border-radius: 6px;
+        padding: 12px;
+        background: #fafafa;
+        font-family: sans-serif;
+      }
+
+      .meter-title {
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 10px;
+      }
+
+      .meter-value {
+        margin-bottom: 10px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #e5e5e5;
+      }
+
+      .meter-value:last-child {
+        margin-bottom: 0;
+        padding-bottom: 0;
+        border-bottom: 0;
+      }
+
+      .meter-label {
+        font-size: 12px;
+        color: #666666;
+      }
+
+      .meter-reading {
+        font-size: 24px;
+        line-height: 1.2;
+      }
+    </style>
 <!--suppress JSUnresolvedLibraryURL -->
 <script src="static/jquery.min.js"></script>
 <!--suppress JSUnresolvedLibraryURL -->
@@ -19,58 +67,66 @@
 
 //https://nagix.github.io/chartjs-plugin-streaming/samples/zoom.html
 var maxSampleCount = 4000; //this can be 4000 or 4800
+var smvChartHeight = 320;
+var currentYAxisScale = 1000;
+var voltageYAxisScale = 100;
 
-
-var config = {
-  type: 'line',
-  data: {
-    datasets: [],
-  },
-  options: {
-    animation: false,
-    scales: {
-      x: {
-        title: { 
-          display: true,
-          text: 'smpCnt',
-        },
-        max: maxSampleCount,
-        minRotation: 0,
-        maxRotation: 0,
-      },
-      y: {
-        title: { 
-          display: true,
-          text: 'value',
-        },
-        type: 'linear',
-        minRotation: 0,
-        maxRotation: 0,
-      },
+function createChartConfig(title, yAxisLabel) {
+  return {
+    type: 'line',
+    data: {
+      datasets: [],
     },
-    interaction: {
-      intersect: false,
-    },
-    plugins: {
-      title: {
-        display: true,
-        text: 'smvScope',
+    options: {
+      animation: false,
+      maintainAspectRatio: false,
+      scales: {
+        x: {
+          title: {
+            display: true,
+            text: 'smpCnt',
+          },
+          max: maxSampleCount,
+          minRotation: 0,
+          maxRotation: 0,
+        },
+        y: {
+          title: {
+            display: true,
+            text: yAxisLabel,
+          },
+          type: 'linear',
+          minRotation: 0,
+          maxRotation: 0,
+        },
       },
-      zoom: {
-        pan: {
-          enabled: true,
-          mode: 'x',
-          overScaleMode: 'x',
+      interaction: {
+        intersect: false,
+      },
+      plugins: {
+        title: {
+          display: true,
+          text: title,
         },
         zoom: {
-          enabled: true,
-          mode: 'xy',
-          overScaleMode: 'y',
-        },
+          pan: {
+            enabled: true,
+            mode: 'x',
+            overScaleMode: 'x',
+          },
+          zoom: {
+            enabled: true,
+            mode: 'xy',
+            overScaleMode: 'y',
+          },
+        }
       }
     }
-  }
-};
+  };
+}
+
+var currentConfig = createChartConfig('Current', 'current');
+var voltageConfig = createChartConfig('Voltage', 'voltage');
 </script>
 </head>
 <body>
@@ -95,7 +151,32 @@ var config = {
             </div>
           </div>
           <div>
-            <canvas id="smvChart"></canvas>
+            <canvas id="currentChart" style="height: 320px;"></canvas>
+          </div>
+          <div class="mt-3">
+            <canvas id="voltageChart" style="height: 320px;"></canvas>
+          </div>
+          <div class="mt-3">
+            <div class="phasor-row">
+              <div class="phasor-canvas-wrap">
+                <canvas id="currentPhasorChart" style="height: 320px;"></canvas>
+              </div>
+              <div class="meter-panel">
+                <div class="meter-title">Current RMS</div>
+                <div id="currentRmsMeter"></div>
+              </div>
+            </div>
+          </div>
+          <div class="mt-3">
+            <div class="phasor-row">
+              <div class="phasor-canvas-wrap">
+                <canvas id="voltagePhasorChart" style="height: 320px;"></canvas>
+              </div>
+              <div class="meter-panel">
+                <div class="meter-title">Voltage RMS</div>
+                <div id="voltageRmsMeter"></div>
+              </div>
+            </div>
           </div>
           <div>
             Stream information:<BR>
@@ -123,8 +204,24 @@ var color = Chart.helpers.color;
 
 var colorNames = Object.keys(chartColors);
 
-function addDataset(label) {
-  var colorName = colorNames[config.data.datasets.length % colorNames.length];
+function getChartState(channel) {
+  if (parseInt(channel, 10) < 4) {
+    return {
+      config: currentConfig,
+      chart: window.currentChart,
+      yAxisScale: currentYAxisScale,
+    };
+  }
+
+  return {
+    config: voltageConfig,
+    chart: window.voltageChart,
+    yAxisScale: voltageYAxisScale,
+  };
+}
+
+function addDataset(chartState, label) {
+  var colorName = colorNames[chartState.config.data.datasets.length % colorNames.length];
   var newColor = chartColors[colorName];
   var newDataset = {
     label: label,
@@ -142,8 +239,8 @@ function addDataset(label) {
     //hidden: hidden,
   };
 
-  config.data.datasets.push(newDataset);
-  window.myChart.update();
+  chartState.config.data.datasets.push(newDataset);
+  chartState.chart.update();
   return newDataset;
 }
 
@@ -209,17 +306,225 @@ function sendChangeMultiple(ref)
 
 function updateMaxSampleCount()
 {
-  config.data.labels = [];
-  config.data.labels.length = 0;
+  currentConfig.data.labels = [];
+  currentConfig.data.labels.length = 0;
+  voltageConfig.data.labels = [];
+  voltageConfig.data.labels.length = 0;
   for(var index =1; index < maxSampleCount; index++) {
-    config.data.labels.push(index);
+    currentConfig.data.labels.push(index);
+    voltageConfig.data.labels.push(index);
   }
-  config.options.scales.x.max = maxSampleCount;
+  currentConfig.options.scales.x.max = maxSampleCount;
+  voltageConfig.options.scales.x.max = maxSampleCount;
+
+  if (window.currentChart) {
+    window.currentChart.update();
+  }
+  if (window.voltageChart) {
+    window.voltageChart.update();
+  }
+}
+
+function getPhasorLabel(channel, type) {
+  var phaseLabels = ['L1', 'L2', 'L3', 'N'];
+  var phaseLabel = phaseLabels[parseInt(channel, 10) % phaseLabels.length];
+  if (type === 'voltage') {
+    return 'V ' + phaseLabel + '-E';
+  }
+  return 'I ' + phaseLabel;
+}
+
+function getPhaseColor(channel, type) {
+  var phaseColors = [
+    'rgb(255, 0, 0)',
+    'rgb(0, 180, 0)',
+    'rgb(0, 70, 255)',
+    type === 'voltage' ? 'rgb(0, 70, 255)' : 'rgb(255, 0, 0)'
+  ];
+  return phaseColors[parseInt(channel, 10) % phaseColors.length];
+}
+
+function getChannelRmsMagnitude(samples, channel, yAxisScale) {
+  var sumSquares = 0;
+  var sampleCount = 0;
+
+  samples.forEach(function(sample) {
+    if (sample['channels'] && sample['channels'][channel]) {
+      var scaledValue = sample['channels'][channel]['y'] / yAxisScale;
+      sumSquares += scaledValue * scaledValue;
+      sampleCount++;
+    }
+  });
+
+  if (sampleCount === 0) {
+    return 0;
+  }
+
+  return Math.sqrt(sumSquares / sampleCount);
+}
+
+function getChannelPhaseAngle(samples, channel, yAxisScale) {
+  var real = 0;
+  var imag = 0;
+  var sampleRate = parseInt(maxSampleCount, 10);
+  var samplesPerCycle = 80;
+  var fundamentalCycles = sampleRate / samplesPerCycle;
+
+  samples.forEach(function(sample) {
+    if (sample['channels'] && sample['channels'][channel]) {
+      var sampleIndex = sample['x'] - 1;
+      var scaledValue = sample['channels'][channel]['y'] / yAxisScale;
+      var theta = 2 * Math.PI * fundamentalCycles * sampleIndex / sampleRate;
+      real += scaledValue * Math.cos(theta);
+      imag -= scaledValue * Math.sin(theta);
+    }
+  });
+
+  if (real === 0 && imag === 0) {
+    return 0;
+  }
+
+  return Math.atan2(imag, real) * 180 / Math.PI;
+}
+
+function drawArrow(ctx, startX, startY, endX, endY, strokeStyle) {
+  var headLength = 10;
+  var angle = Math.atan2(endY - startY, endX - startX);
+
+  ctx.strokeStyle = strokeStyle;
+  ctx.fillStyle = strokeStyle;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(startX, startY);
+  ctx.lineTo(endX, endY);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(endX, endY);
+  ctx.lineTo(
+    endX - headLength * Math.cos(angle - Math.PI / 6),
+    endY - headLength * Math.sin(angle - Math.PI / 6)
+  );
+  ctx.lineTo(
+    endX - headLength * Math.cos(angle + Math.PI / 6),
+    endY - headLength * Math.sin(angle + Math.PI / 6)
+  );
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawPhasorGrid(ctx, width, height, title, unit, maxMagnitude) {
+  var centerX = width / 2;
+  var centerY = height / 2;
+  var radius = Math.min(width, height) * 0.42;
+
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.strokeStyle = '#222222';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+  ctx.stroke();
+
+  ctx.strokeStyle = '#b6b6b6';
+  ctx.setLineDash([3, 4]);
+  for (var ring = 1; ring < 4; ring++) {
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius * ring / 4, 0, 2 * Math.PI);
+    ctx.stroke();
+  }
+
+  for (var deg = 0; deg < 360; deg += 30) {
+    var angle = deg * Math.PI / 180;
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.lineTo(centerX + radius * Math.cos(angle), centerY - radius * Math.sin(angle));
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = '#111111';
+  ctx.font = '16px sans-serif';
+  ctx.fillText(title, 12, 24);
+  ctx.fillText('+' + 90 + '°', centerX - 18, 20);
+  ctx.fillText('-90°', centerX - 18, height - 12);
+  ctx.fillText('180°', 12, centerY + 20);
+  ctx.fillText('0°', width - 40, centerY + 20);
+  ctx.fillText(maxMagnitude.toFixed(1) + ' ' + unit, 12, height - 12);
+
+  return {
+    centerX: centerX,
+    centerY: centerY,
+    radius: radius,
+  };
+}
+
+function renderPhasorView(canvas, title, phasors, unit, type) {
+  if (!canvas) {
+    return;
+  }
+
+  var ctx = canvas.getContext('2d');
+  var rect = canvas.getBoundingClientRect();
+  var dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(rect.width * dpr);
+  canvas.height = Math.round(rect.height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  var maxMagnitude = 1;
+  phasors.forEach(function(phasor) {
+    maxMagnitude = Math.max(maxMagnitude, phasor.magnitude);
+  });
+
+  var grid = drawPhasorGrid(ctx, rect.width, rect.height, title, unit, maxMagnitude);
+
+  ctx.font = '14px sans-serif';
+  phasors.forEach(function(phasor) {
+    var angleRad = phasor.angle * Math.PI / 180;
+    var normalizedMagnitude = phasor.magnitude / maxMagnitude;
+    var endX = grid.centerX + grid.radius * normalizedMagnitude * Math.cos(angleRad);
+    var endY = grid.centerY - grid.radius * normalizedMagnitude * Math.sin(angleRad);
+    var phaseColor = getPhaseColor(phasor.channel, type);
+
+    ctx.fillStyle = phaseColor;
+    drawArrow(ctx, grid.centerX, grid.centerY, endX, endY, phaseColor);
+    ctx.fillText(phasor.label, endX + 8, endY - 8);
+  });
+}
+
+function renderRmsMeter(elementId, phasors, unit) {
+  var meter = document.getElementById(elementId);
+  if (!meter) {
+    return;
+  }
+
+  if (phasors.length === 0) {
+    meter.innerHTML = '<div class="meter-label">No data</div>';
+    return;
+  }
+
+  var html = '';
+  phasors.forEach(function(phasor) {
+    var phaseColor = getPhaseColor(phasor.channel, unit === 'V' ? 'voltage' : 'current');
+    html += '<div class="meter-value">';
+    html += '<div class="meter-label" style="color:' + phaseColor + ';">' + phasor.label + '</div>';
+    html += '<div class="meter-reading">' + phasor.magnitude.toFixed(2) + ' ' + unit + '</div>';
+    html += '</div>';
+  });
+  meter.innerHTML = html;
 }
 
 window.onload = function() {
-  const ctx = document.getElementById('smvChart').getContext('2d');
-  window.myChart = new Chart(ctx, config);
+  document.getElementById('currentChart').style.height = smvChartHeight + 'px';
+  document.getElementById('voltageChart').style.height = smvChartHeight + 'px';
+  document.getElementById('currentPhasorChart').style.height = smvChartHeight + 'px';
+  document.getElementById('voltagePhasorChart').style.height = smvChartHeight + 'px';
+  const currentCtx = document.getElementById('currentChart').getContext('2d');
+  const voltageCtx = document.getElementById('voltageChart').getContext('2d');
+  window.currentChart = new Chart(currentCtx, currentConfig);
+  window.voltageChart = new Chart(voltageCtx, voltageConfig);
 
   updateMaxSampleCount();
 
@@ -239,21 +544,31 @@ window.onload = function() {
     const info = document.getElementById('info');
     info.innerHTML = infos;
 
-    var used = [];
+    var usedCurrent = [];
+    var usedVoltage = [];
+    var currentPhasors = [];
+    var voltagePhasors = [];
     for(var svID in cdata['dataSets']) { //streams
+      var streamSamples = cdata['dataSets'][svID];
       for(var channel in cdata['dataSets'][svID][0]['channels']) {
+        var chartState = getChartState(channel);
         var dset = 'Dataset ' + svID + ',' + channel; //derive label from key stream/channel values
         var curDataSet = null;
-        config.data.datasets.forEach(function(dataset) { //search for this dataset
+        chartState.config.data.datasets.forEach(function(dataset) { //search for this dataset
           if( dataset.label === dset){ // if found, add data to it
             curDataSet = dataset;
           }
         });
         if(curDataSet == null){
           // no dataset found, so add it
-          curDataSet = addDataset(dset);
+          curDataSet = addDataset(chartState, dset);
         }
-        used.push(curDataSet);//register the dataset as in use
+        if (parseInt(channel, 10) < 4) {
+          usedCurrent.push(curDataSet);
+        }
+        else {
+          usedVoltage.push(curDataSet);
+        }
 
         curDataSet.length = 0;
         curDataSet.data = []; //clear the data
@@ -263,7 +578,7 @@ window.onload = function() {
           if(typeof cdata['dataSets'][svID][index] !== 'undefined'){
             var smpCnt = cdata['dataSets'][svID][index]['x'];
             if(idx == smpCnt ) {
-              var yval = cdata['dataSets'][svID][index]['channels'][channel]['y'];
+              var yval = cdata['dataSets'][svID][index]['channels'][channel]['y'] / chartState.yAxisScale;
               curDataSet.data.push({
                 x: smpCnt,
                 y: yval,
@@ -278,10 +593,37 @@ window.onload = function() {
             y: 0,
           });
         }
+
+        var phasorMagnitude = getChannelRmsMagnitude(streamSamples, channel, chartState.yAxisScale);
+        var phasorAngle = getChannelPhaseAngle(streamSamples, channel, chartState.yAxisScale);
+        if (phasorMagnitude > 0) {
+          if (parseInt(channel, 10) < 4) {
+            currentPhasors.push({
+              label: getPhasorLabel(channel, 'current'),
+              channel: channel,
+              magnitude: phasorMagnitude,
+              angle: phasorAngle,
+            });
+          }
+          else {
+            voltagePhasors.push({
+              label: getPhasorLabel(channel, 'voltage'),
+              channel: channel,
+              magnitude: phasorMagnitude,
+              angle: phasorAngle,
+            });
+          }
+        }
       }
     }
-    config.data.datasets = used; // new set of datasets
-    window.myChart.update();
+    currentConfig.data.datasets = usedCurrent;
+    voltageConfig.data.datasets = usedVoltage;
+    window.currentChart.update();
+    window.voltageChart.update();
+    renderPhasorView(document.getElementById('currentPhasorChart'), 'Current Phasor View', currentPhasors, 'A', 'current');
+    renderPhasorView(document.getElementById('voltagePhasorChart'), 'Voltage Phasor View', voltagePhasors, 'V', 'voltage');
+    renderRmsMeter('currentRmsMeter', currentPhasors, 'A');
+    renderRmsMeter('voltageRmsMeter', voltagePhasors, 'V');
   }
   
   const log_source = new EventSource("/log-data");
