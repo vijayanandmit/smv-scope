@@ -11,6 +11,51 @@
         align-items: stretch;
       }
 
+      .view-layout {
+        display: flex;
+        gap: 20px;
+        align-items: flex-start;
+        margin-top: 16px;
+      }
+
+      .view-nav {
+        width: 220px;
+        flex: 0 0 220px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .view-nav-button {
+        width: 100%;
+        padding: 12px 14px;
+        border: 1px solid #cfd4da;
+        border-radius: 8px;
+        background: #f7f8fa;
+        color: #222222;
+        text-align: left;
+        font-weight: 600;
+      }
+
+      .view-nav-button.active {
+        background: #0d6efd;
+        border-color: #0d6efd;
+        color: #ffffff;
+      }
+
+      .view-panels {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .view-panel {
+        display: none;
+      }
+
+      .view-panel.active {
+        display: block;
+      }
+
       .phasor-canvas-wrap {
         flex: 1 1 auto;
       }
@@ -77,6 +122,17 @@
 
       .comtrade-export-panel .btn {
         width: 100%;
+      }
+
+      @media (max-width: 991px) {
+        .view-layout {
+          flex-direction: column;
+        }
+
+        .view-nav {
+          width: 100%;
+          flex-basis: auto;
+        }
       }
 
     </style>
@@ -200,39 +256,51 @@ var voltageConfig = createChartConfig('Voltage', 'Voltage (V)');
               </select> 
             </div>
           </div>
-          <div>
-            <canvas id="currentChart" style="height: 320px;"></canvas>
-          </div>
-          <div class="mt-3">
-            <canvas id="voltageChart" style="height: 320px;"></canvas>
-          </div>
-          <div class="mt-3">
-            <div class="form-check phasor-toggle">
-              <input type="checkbox" class="form-check-input" id="showCurrentSequenceComponents" autocomplete="off">
-              <label class="form-check-label" for="showCurrentSequenceComponents">Toggle current sequence components</label>
+          <div class="view-layout">
+            <div class="view-nav" role="tablist" aria-label="Visualization views">
+              <button type="button" class="view-nav-button active" id="waveformTabButton" data-view-target="waveformView" aria-controls="waveformView" aria-selected="true">Waveform</button>
+              <button type="button" class="view-nav-button" id="phasorTabButton" data-view-target="phasorView" aria-controls="phasorView" aria-selected="false">Phasor View</button>
             </div>
-            <div class="phasor-row">
-              <div class="phasor-canvas-wrap">
-                <canvas id="currentPhasorChart" style="height: 320px;"></canvas>
+            <div class="view-panels">
+              <div class="view-panel active" id="waveformView" role="tabpanel" aria-labelledby="waveformTabButton">
+                <div>
+                  <canvas id="currentChart" style="height: 320px;"></canvas>
+                </div>
+                <div class="mt-3">
+                  <canvas id="voltageChart" style="height: 320px;"></canvas>
+                </div>
               </div>
-              <div class="meter-panel">
-                <div class="meter-title" id="currentMeterTitle">Current RMS</div>
-                <div id="currentRmsMeter"></div>
-              </div>
-            </div>
-          </div>
-          <div class="mt-3">
-            <div class="form-check phasor-toggle">
-              <input type="checkbox" class="form-check-input" id="showVoltageSequenceComponents" autocomplete="off">
-              <label class="form-check-label" for="showVoltageSequenceComponents">Toggle voltage sequence components</label>
-            </div>
-            <div class="phasor-row">
-              <div class="phasor-canvas-wrap">
-                <canvas id="voltagePhasorChart" style="height: 320px;"></canvas>
-              </div>
-              <div class="meter-panel">
-                <div class="meter-title" id="voltageMeterTitle">Voltage RMS</div>
-                <div id="voltageRmsMeter"></div>
+              <div class="view-panel" id="phasorView" role="tabpanel" aria-labelledby="phasorTabButton">
+                <div>
+                  <div class="form-check phasor-toggle">
+                    <input type="checkbox" class="form-check-input" id="showCurrentSequenceComponents" autocomplete="off">
+                    <label class="form-check-label" for="showCurrentSequenceComponents">Toggle current sequence components</label>
+                  </div>
+                  <div class="phasor-row">
+                    <div class="phasor-canvas-wrap">
+                      <canvas id="currentPhasorChart" style="height: 320px;"></canvas>
+                    </div>
+                    <div class="meter-panel">
+                      <div class="meter-title" id="currentMeterTitle">Current RMS</div>
+                      <div id="currentRmsMeter"></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="mt-3">
+                  <div class="form-check phasor-toggle">
+                    <input type="checkbox" class="form-check-input" id="showVoltageSequenceComponents" autocomplete="off">
+                    <label class="form-check-label" for="showVoltageSequenceComponents">Toggle voltage sequence components</label>
+                  </div>
+                  <div class="phasor-row">
+                    <div class="phasor-canvas-wrap">
+                      <canvas id="voltagePhasorChart" style="height: 320px;"></canvas>
+                    </div>
+                    <div class="meter-panel">
+                      <div class="meter-title" id="voltageMeterTitle">Voltage RMS</div>
+                      <div id="voltageRmsMeter"></div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -768,8 +836,43 @@ var latestCurrentPhasors = [];
 var latestVoltagePhasors = [];
 var latestCurrentSequencePhasors = [];
 var latestVoltageSequencePhasors = [];
+var activeView = 'waveformView';
+
+function setActiveView(viewId) {
+  activeView = viewId;
+
+  document.querySelectorAll('.view-nav-button').forEach(function(button) {
+    var isActive = button.getAttribute('data-view-target') === viewId;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+
+  document.querySelectorAll('.view-panel').forEach(function(panel) {
+    panel.classList.toggle('active', panel.id === viewId);
+  });
+
+  window.requestAnimationFrame(function() {
+    if (viewId === 'phasorView') {
+      renderPhasorPanels();
+      return;
+    }
+
+    if (window.currentChart) {
+      window.currentChart.resize();
+      window.currentChart.update('none');
+    }
+    if (window.voltageChart) {
+      window.voltageChart.resize();
+      window.voltageChart.update('none');
+    }
+  });
+}
 
 function renderPhasorPanels() {
+  if (activeView !== 'phasorView') {
+    return;
+  }
+
   var showCurrentSequenceComponents = document.getElementById('showCurrentSequenceComponents').checked;
   var showVoltageSequenceComponents = document.getElementById('showVoltageSequenceComponents').checked;
   var currentDisplayPhasors = showCurrentSequenceComponents ? latestCurrentSequencePhasors : latestCurrentPhasors;
@@ -806,8 +909,14 @@ window.onload = function() {
   document.getElementById('showCurrentSequenceComponents').addEventListener('change', renderPhasorPanels);
   document.getElementById('showVoltageSequenceComponents').addEventListener('change', renderPhasorPanels);
   document.getElementById('exportComtradeButton').addEventListener('click', exportComtrade);
+  document.querySelectorAll('.view-nav-button').forEach(function(button) {
+    button.addEventListener('click', function() {
+      setActiveView(button.getAttribute('data-view-target'));
+    });
+  });
 
   updateMaxSampleCount();
+  setActiveView(activeView);
 
   const stream_source = new EventSource("/stream-data");
   stream_source.onmessage = function (event) {
