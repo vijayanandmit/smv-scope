@@ -327,20 +327,42 @@ def _estimate_nominal_frequency(sample_rate):
     return 0
 
 
-def _channel_scaling(values):
+def _get_channel_plot_scale(channel):
+    return 1000.0 if channel < 4 else 100.0
+
+
+def _channel_scaling(values, data_format):
     if not values:
+        if data_format == 'ASCII':
+            return 1.0, 0.0, 0, 65535
         return 1.0, 0.0, -32767, 32767
 
     minimum = min(values)
     maximum = max(values)
     if minimum == maximum:
+        if data_format == 'ASCII':
+            return 1.0, minimum, 0, 65535
         return 1.0, 0.0, minimum, maximum
+
+    if data_format == 'ASCII':
+        scale = (maximum - minimum) / 65535.0
+        offset = minimum
+        return scale, offset, 0, 65535
 
     offset = (maximum + minimum) / 2.0
     scale = (maximum - minimum) / 65534.0
     if scale == 0:
         scale = 1.0
     return scale, offset, minimum, maximum
+
+
+def _encode_raw_value(value, channel):
+    if channel['format'] == 'ASCII':
+        raw = int(round((value - channel['b']) / channel['a'])) if channel['a'] != 0 else 0
+        return max(0, min(65535, raw))
+
+    raw = int(round((value - channel['b']) / channel['a'])) if channel['a'] != 0 else 0
+    return max(-32767, min(32767, raw))
 
 
 def _build_cfg_text(station_name, recorder_id, revision_year, analog_channels, sample_rate, start_time, trigger_time, data_format):
@@ -355,17 +377,16 @@ def _build_cfg_text(station_name, recorder_id, revision_year, analog_channels, s
 
     for index, channel in enumerate(analog_channels, start=1):
         lines.append(
-            f"{index},{channel['name']},,,V,{channel['a']:.12g},{channel['b']:.12g},0,"
-            f"{channel['minimum']:.12g},{channel['maximum']:.12g},1,1,P"
+            f"{index},{channel['name']},{channel['phase']},,{channel['unit']},{channel['a']:.12g},{channel['b']:.12g},0.0,"
+            f"{channel['minimum']},{channel['maximum']}"
         )
 
-    lines.append(f"{_estimate_nominal_frequency(sample_rate)}")
+    lines.append(f"{float(_estimate_nominal_frequency(sample_rate)):.1f}")
     lines.append("1")
-    lines.append(f"{sample_rate},{len(channel['samples']) if analog_channels else 0}")
-    lines.append(start_time.strftime("%m/%d/%Y,%H:%M:%S.%f"))
-    lines.append(trigger_time.strftime("%m/%d/%Y,%H:%M:%S.%f"))
+    lines.append(f"{float(sample_rate):.1f},{len(channel['samples']) if analog_channels else 0}")
+    lines.append(start_time.strftime("%m/%d/%y,%H:%M:%S.%f"))
+    lines.append(trigger_time.strftime("%m/%d/%y,%H:%M:%S.%f"))
     lines.append(data_format)
-    lines.append("1")
     return "\n".join(lines) + "\n"
 
 
@@ -375,7 +396,7 @@ def _build_ascii_dat(analog_channels, sample_rate):
     for sample_index in range(sample_count):
         timestamp_us = int(round(sample_index * 1000000.0 / sample_rate))
         values = [
-            str(analog_channels[channel_index]['samples'][sample_index])
+            str(_encode_raw_value(analog_channels[channel_index]['samples'][sample_index], analog_channels[channel_index]))
             for channel_index in range(len(analog_channels))
         ]
         rows.append(",".join([str(sample_index + 1), str(timestamp_us)] + values))
@@ -390,8 +411,7 @@ def _build_binary_dat(analog_channels, sample_rate):
         timestamp_us = int(round(sample_index * 1000000.0 / sample_rate))
         payload.extend(pack('<ii', sample_index + 1, timestamp_us))
         for channel in analog_channels:
-            raw = int(round((channel['samples'][sample_index] - channel['b']) / channel['a'])) if channel['a'] != 0 else 0
-            raw = max(-32767, min(32767, raw))
+            raw = _encode_raw_value(channel['samples'][sample_index], channel)
             payload.extend(pack('<h', raw))
     return bytes(payload)
 
@@ -434,14 +454,20 @@ def export_comtrade():
             values = channel_samples[channel]
             if not values:
                 continue
-            a, b, minimum, maximum = _channel_scaling(values)
+            plot_scale = _get_channel_plot_scale(channel)
+            plotted_values = [value / plot_scale for value in values]
+            unit = 'A' if channel < 4 else 'V'
+            a, b, minimum, maximum = _channel_scaling(plotted_values, data_format)
             analog_channels.append({
                 'name': f"{svID}_ch{channel}",
-                'samples': values,
+                'samples': plotted_values,
                 'a': a,
                 'b': b,
                 'minimum': minimum,
                 'maximum': maximum,
+                'unit': unit,
+                'phase': (channel % 4) + 1,
+                'format': data_format,
             })
 
     if not analog_channels:
