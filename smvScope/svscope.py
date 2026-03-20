@@ -15,6 +15,7 @@ import socket
 from struct import unpack, pack
 import threading
 import binascii
+from collections import deque
 from datetime import datetime
 
 application = Flask(__name__)
@@ -40,13 +41,228 @@ smv_data = {}
 sec_counter = {}
 streamInfo = {}
 oldSmpCnt = {}
+communicationStats = {}
+networkInfo = {}
 
 log_list = []
+
+QUALITY_VALIDITY_LABELS = {
+    getattr(lib61850, 'QUALITY_VALIDITY_GOOD', 0): 'good',
+    getattr(lib61850, 'QUALITY_VALIDITY_RESERVED', 1): 'reserved',
+    getattr(lib61850, 'QUALITY_VALIDITY_INVALID', 2): 'invalid',
+    getattr(lib61850, 'QUALITY_VALIDITY_QUESTIONABLE', 3): 'questionable',
+}
+
+QUALITY_FLAGS = [
+    ('overflow', getattr(lib61850, 'QUALITY_DETAIL_OVERFLOW', 4)),
+    ('outOfRange', getattr(lib61850, 'QUALITY_DETAIL_OUT_OF_RANGE', 8)),
+    ('badReference', getattr(lib61850, 'QUALITY_DETAIL_BAD_REFERENCE', 16)),
+    ('oscillatory', getattr(lib61850, 'QUALITY_DETAIL_OSCILLATORY', 32)),
+    ('failure', getattr(lib61850, 'QUALITY_DETAIL_FAILURE', 64)),
+    ('oldData', getattr(lib61850, 'QUALITY_DETAIL_OLD_DATA', 128)),
+    ('inconsistent', getattr(lib61850, 'QUALITY_DETAIL_INCONSISTENT', 256)),
+    ('inaccurate', getattr(lib61850, 'QUALITY_DETAIL_INACCURATE', 512)),
+    ('substituted', getattr(lib61850, 'QUALITY_SOURCE_SUBSTITUTED', 1024)),
+    ('test', getattr(lib61850, 'QUALITY_TEST', 2048)),
+    ('operatorBlocked', getattr(lib61850, 'QUALITY_OPERATOR_BLOCKED', 4096)),
+    ('derived', getattr(lib61850, 'QUALITY_DERIVED', 8192)),
+]
+
+SMP_SYNC_LABELS = {
+    0: 'none',
+    1: 'local',
+    2: 'global',
+    3: 'unknown',
+}
 
 # listbox data
 control_data_d['streamSelect_items'] = [] # list of streams
 control_data_d['streamSelect'] = { "streamValue": [], "enableListener": True } # selected stream
 
+
+def _decode_quality(quality_value):
+    validity = quality_value & 0x3
+    active_flags = [name for name, bitmask in QUALITY_FLAGS if quality_value & bitmask]
+
+    if validity == getattr(lib61850, 'QUALITY_VALIDITY_GOOD', 0) and not active_flags:
+        state = 'good'
+    elif validity == getattr(lib61850, 'QUALITY_VALIDITY_INVALID', 2) or 'failure' in active_flags or 'badReference' in active_flags:
+        state = 'invalid'
+    else:
+        state = 'warning'
+
+    return {
+        'value': int(quality_value),
+        'hex': f"0x{int(quality_value):04x}",
+        'validity': QUALITY_VALIDITY_LABELS.get(validity, f'unknown({validity})'),
+        'flags': active_flags,
+        'state': state,
+    }
+
+
+def _build_lsvs_status(asdu, size):
+    channel_count = int(size / 8) if size > 0 else 0
+    channels = {}
+    overall_state = 'good'
+
+    for channel in range(channel_count):
+        quality_offset = channel * 8 + 4
+        if quality_offset + 4 > size:
+            continue
+
+        quality = int(lib61850.SVSubscriber_ASDU_getQuality(asdu, quality_offset))
+        decoded = _decode_quality(quality)
+        channels[channel] = decoded
+
+        if decoded['state'] == 'invalid':
+            overall_state = 'invalid'
+        elif decoded['state'] == 'warning' and overall_state == 'good':
+            overall_state = 'warning'
+
+    smp_sync = int(lib61850.SVSubscriber_ASDU_getSmpSynch(asdu))
+    return {
+        'overall': overall_state,
+        'channelCount': channel_count,
+        'smpSync': smp_sync,
+        'smpSyncLabel': SMP_SYNC_LABELS.get(smp_sync, f'unknown({smp_sync})'),
+        'channels': channels,
+    }
+
+
+def _get_interface_name():
+    return sys.argv[1] if len(sys.argv) > 1 else 'eth0'
+
+
+def _read_text_file(path):
+    try:
+        with open(path, 'r', encoding='utf-8') as handle:
+            return handle.read().strip()
+    except OSError:
+        return None
+
+
+def _read_network_info(interface):
+    base_path = f'/sys/class/net/{interface}'
+    speed_text = _read_text_file(f'{base_path}/speed')
+    mtu_text = _read_text_file(f'{base_path}/mtu')
+    carrier_text = _read_text_file(f'{base_path}/carrier')
+    operstate = _read_text_file(f'{base_path}/operstate')
+    duplex = _read_text_file(f'{base_path}/duplex')
+
+    try:
+        speed_mbps = int(speed_text)
+        if speed_mbps < 0:
+            speed_mbps = None
+    except (TypeError, ValueError):
+        speed_mbps = None
+
+    try:
+        mtu = int(mtu_text) if mtu_text is not None else None
+    except ValueError:
+        mtu = None
+
+    return {
+        'interface': interface,
+        'speedMbps': speed_mbps,
+        'carrier': carrier_text == '1' if carrier_text in ('0', '1') else None,
+        'operState': operstate or 'unknown',
+        'duplex': duplex or 'unknown',
+        'mtu': mtu,
+    }
+
+
+def _mean(values):
+    return (sum(values) / len(values)) if values else None
+
+
+def _new_qos_stats():
+    return {
+        'packetsReceived': 0,
+        'packetsLost': 0,
+        'lossPercent': 0.0,
+        'bandwidthBps': 0.0,
+        'packetRatePps': 0.0,
+        'jitterMs': None,
+        'propagationDelayMs': None,
+        'minDelayMs': None,
+        'maxDelayMs': None,
+        'lastArrivalMs': None,
+        'lastRefTimeMs': None,
+        'lastSmpCnt': None,
+        'lastIntervalMs': None,
+        'windowBytes': 0,
+        'arrivalWindow': deque(),
+        'jitterWindow': deque(maxlen=128),
+        'delayWindow': deque(maxlen=128),
+    }
+
+
+def _normalize_sample_delta(previous, current, sample_rate):
+    if previous is None:
+        return None
+    if current >= previous:
+        return current - previous
+    if sample_rate and sample_rate > 0:
+        return (sample_rate - previous) + current
+    return 1
+
+
+def _update_qos_metrics(svID, packet_size, smpCnt, sample_rate, ref_time_ms):
+    global communicationStats
+
+    arrival_ms = time.time() * 1000.0
+    stats = communicationStats.setdefault(svID, _new_qos_stats())
+    stats['packetsReceived'] += 1
+
+    sample_delta = _normalize_sample_delta(stats['lastSmpCnt'], smpCnt, sample_rate)
+    if sample_delta is not None and sample_delta > 1:
+        stats['packetsLost'] += sample_delta - 1
+
+    total_packets = stats['packetsReceived'] + stats['packetsLost']
+    if total_packets > 0:
+        stats['lossPercent'] = (stats['packetsLost'] * 100.0) / total_packets
+
+    if stats['lastArrivalMs'] is not None:
+        interval_ms = arrival_ms - stats['lastArrivalMs']
+        if stats['lastIntervalMs'] is not None:
+            stats['jitterWindow'].append(abs(interval_ms - stats['lastIntervalMs']))
+        stats['lastIntervalMs'] = interval_ms
+        stats['jitterMs'] = _mean(stats['jitterWindow'])
+
+    stats['arrivalWindow'].append((arrival_ms, packet_size))
+    stats['windowBytes'] += packet_size
+    cutoff_ms = arrival_ms - 1000.0
+    while stats['arrivalWindow'] and stats['arrivalWindow'][0][0] < cutoff_ms:
+        _, old_size = stats['arrivalWindow'].popleft()
+        stats['windowBytes'] -= old_size
+
+    if stats['arrivalWindow']:
+        window_duration_ms = max(arrival_ms - stats['arrivalWindow'][0][0], 1.0)
+        stats['packetRatePps'] = (len(stats['arrivalWindow']) * 1000.0) / window_duration_ms
+        stats['bandwidthBps'] = (stats['windowBytes'] * 8.0 * 1000.0) / window_duration_ms
+
+    if ref_time_ms is not None:
+        delay_ms = arrival_ms - ref_time_ms
+        stats['delayWindow'].append(delay_ms)
+        stats['propagationDelayMs'] = _mean(stats['delayWindow'])
+        stats['minDelayMs'] = min(stats['delayWindow'])
+        stats['maxDelayMs'] = max(stats['delayWindow'])
+        stats['lastRefTimeMs'] = ref_time_ms
+
+    stats['lastArrivalMs'] = arrival_ms
+    stats['lastSmpCnt'] = smpCnt
+
+    return {
+        'packetsReceived': stats['packetsReceived'],
+        'packetsLost': stats['packetsLost'],
+        'lossPercent': round(stats['lossPercent'], 4),
+        'bandwidthBps': round(stats['bandwidthBps'], 2),
+        'packetRatePps': round(stats['packetRatePps'], 2),
+        'jitterMs': round(stats['jitterMs'], 4) if stats['jitterMs'] is not None else None,
+        'propagationDelayMs': round(stats['propagationDelayMs'], 4) if stats['propagationDelayMs'] is not None else None,
+        'minDelayMs': round(stats['minDelayMs'], 4) if stats['minDelayMs'] is not None else None,
+        'maxDelayMs': round(stats['maxDelayMs'], 4) if stats['maxDelayMs'] is not None else None,
+    }
 
 
 # duration can be > 0 to set a timeout, 0 for immediate and -1 for infinite
@@ -251,6 +467,7 @@ def stream_data_g():
         allData = {}
         allData['dataSets'] = {}
         allData['stream_info'] = {}
+        allData['network_info'] = networkInfo
         new_data = False
 
         index = 0
@@ -522,8 +739,9 @@ def log_data():
 
 def svUpdateListener_cb(subscriber, parameter, asdu):
     svID = lib61850.SVSubscriber_ASDU_getSvId(asdu).decode("utf-8")
-    
+
     global streamFilter
+    global streamInfo
     if svID not in streamFilter:
         print_to_log("DEBUG: filter not matched for svID: " + svID)
         return
@@ -550,30 +768,80 @@ def svUpdateListener_cb(subscriber, parameter, asdu):
     # json list with { x: samplecount, index: [{y:_},{y:_},{y:_},...] }
     smv_data[svID][seconds].append( {'x': smpCnt, 'channels': indices } )
 
+    lsvs_status = _build_lsvs_status(asdu, size)
+
+    ref_time_ms = None
+    if lib61850.SVSubscriber_ASDU_hasRefrTm(asdu) == True:
+        ref_time_ms = lib61850.SVSubscriber_ASDU_getRefrTmAsMs(asdu)
+
+    sample_rate = None
+    if lib61850.SVSubscriber_ASDU_hasSmpRate(asdu) == True:
+        sample_rate = lib61850.SVSubscriber_ASDU_getSmpRate(asdu)
+    elif svID in streamInfo and 'smpRate' in streamInfo[svID]:
+        sample_rate = streamInfo[svID]['smpRate']
+
+    qos_metrics = _update_qos_metrics(svID, size, smpCnt, sample_rate, ref_time_ms)
+
+    if svID not in streamInfo:
+        streamInfo[svID] = {
+            'size': size,
+            'seconds': seconds,
+            'svID': svID,
+            'confRev': lib61850.SVSubscriber_ASDU_getConfRev(asdu),
+            'smpSync': lsvs_status['smpSync'],
+            'lsvs': lsvs_status,
+            'qos': qos_metrics,
+        }
+        if svID in StreamDetails:
+            streamInfo[svID].update(StreamDetails[svID])
+        if lib61850.SVSubscriber_ASDU_hasDatSet(asdu) == True:
+            dataset = lib61850.SVSubscriber_ASDU_getDatSet(asdu)
+            streamInfo[svID]['datset'] = dataset.decode("utf-8") if dataset else ''
+        if sample_rate is not None:
+            streamInfo[svID]['smpRate'] = sample_rate
+        if ref_time_ms is not None:
+            streamInfo[svID]['RefTm'] = ref_time_ms
+        if lib61850.SVSubscriber_ASDU_hasSmpMod(asdu) == True:
+            streamInfo[svID]['smpMod'] = lib61850.SVSubscriber_ASDU_getSmpMod(asdu)
+
     # increment the secod counter each 4000 sampled, i.e each second
     if oldSmpCnt[svID] > smpCnt: # trigger second increment when the counter loops.(i.e. when the previous smpCnt is higher then the current, we assume we looped around from 4000 to 0)
-        global streamInfo
-        streamInfo[svID] = {
-                             'size': size, 
-                             'seconds': seconds, 
-                             'svID': str(lib61850.SVSubscriber_ASDU_getSvId(asdu)),
-                             'confRev': lib61850.SVSubscriber_ASDU_getConfRev(asdu), 
-                             'smpSync': lib61850.SVSubscriber_ASDU_getSmpSynch(asdu),
-                           }
+        streamInfo[svID]['size'] = size
+        streamInfo[svID]['seconds'] = seconds
+        streamInfo[svID]['svID'] = svID
+        streamInfo[svID]['confRev'] = lib61850.SVSubscriber_ASDU_getConfRev(asdu)
+        streamInfo[svID]['smpSync'] = lsvs_status['smpSync']
+        streamInfo[svID]['lsvs'] = lsvs_status
+        streamInfo[svID]['qos'] = qos_metrics
+        if svID in StreamDetails:
+            streamInfo[svID].update(StreamDetails[svID])
+
         # OPTIONAL; not in 9-2 LE, source:https://knowledge.rtds.com/hc/en-us/article_attachments/360074685173/C_Kriger_Adewole_RTDS.pdf
         if lib61850.SVSubscriber_ASDU_hasDatSet(asdu) == True:
-            streamInfo['datset'] = lib61850.SVSubscriber_ASDU_getDatSet(asdu)
-        if lib61850.SVSubscriber_ASDU_hasSmpRate(asdu) == True:
-            streamInfo['smpRate'] = lib61850.SVSubscriber_ASDU_getSmpRate(asdu)
-        if lib61850.SVSubscriber_ASDU_hasRefrTm(asdu) == True:
-            streamInfo['RefTm'] = lib61850.SVSubscriber_ASDU_getRefrTmAsMs(asdu)
+            dataset = lib61850.SVSubscriber_ASDU_getDatSet(asdu)
+            streamInfo[svID]['datset'] = dataset.decode("utf-8") if dataset else ''
+        if sample_rate is not None:
+            streamInfo[svID]['smpRate'] = sample_rate
+        if ref_time_ms is not None:
+            streamInfo[svID]['RefTm'] = ref_time_ms
         if lib61850.SVSubscriber_ASDU_hasSmpMod(asdu) == True:
-            streamInfo['smpMod'] = lib61850.SVSubscriber_ASDU_getSmpMod(asdu)
+            streamInfo[svID]['smpMod'] = lib61850.SVSubscriber_ASDU_getSmpMod(asdu)
 
-        #increment counter    
+        #increment counter
         seconds = seconds + 1
         smv_data[svID][seconds] = [] # create a new list to store the samples
         sec_counter[svID] = seconds
+    else:
+        streamInfo[svID]['seconds'] = seconds
+        streamInfo[svID]['smpSync'] = lsvs_status['smpSync']
+        streamInfo[svID]['lsvs'] = lsvs_status
+        streamInfo[svID]['qos'] = qos_metrics
+        if svID in StreamDetails:
+            streamInfo[svID].update(StreamDetails[svID])
+        if sample_rate is not None:
+            streamInfo[svID]['smpRate'] = sample_rate
+        if ref_time_ms is not None:
+            streamInfo[svID]['RefTm'] = ref_time_ms
                              
     oldSmpCnt[svID] = smpCnt
     
@@ -661,6 +929,7 @@ def determine_path():
 def start ():
     global receiver
     global streamListingThread
+    global networkInfo
     path = determine_path()
     print( "path:" + path )
     print("Data files path:")
@@ -676,16 +945,17 @@ def start ():
 
 
     receiver = lib61850.SVReceiver_create()
-    
+
+    interface_name = _get_interface_name()
     if len(sys.argv) > 1:
-        print_to_log("Set interface id: %s" % sys.argv[1])
-        lib61850.SVReceiver_setInterfaceId(receiver, sys.argv[1])
+        print_to_log("Set interface id: %s" % interface_name)
     else:
         print_to_log("Using interface eth0")
-        lib61850.SVReceiver_setInterfaceId(receiver, "eth0")
+    lib61850.SVReceiver_setInterfaceId(receiver, interface_name)
+    networkInfo = _read_network_info(interface_name)
 
     # general stream listener thread to catch all streams(subscribed and unsubscribed)
-    streamListingThread = threading.Thread(target=getSMVStreams, args=(sys.argv[1],-1))
+    streamListingThread = threading.Thread(target=getSMVStreams, args=(interface_name,-1))
     streamListingThread.start()
     #subs = subscribe(receiver, None, None, "simpleIOGenericIO/LLN0$GO$gcbAnalogValues",str(1))
 
