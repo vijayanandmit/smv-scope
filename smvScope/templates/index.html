@@ -48,6 +48,171 @@
         background: #fafafa;
       }
 
+      .communication-summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .communication-summary-card {
+        border: 1px solid #d8d8d8;
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 12px;
+      }
+
+      .communication-summary-label {
+        font-size: 12px;
+        color: #666666;
+        margin-bottom: 4px;
+      }
+
+      .communication-summary-value {
+        font-size: 24px;
+        line-height: 1.2;
+        font-weight: 600;
+      }
+
+      .communication-section {
+        margin-top: 16px;
+      }
+
+      .communication-section-title {
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 10px;
+      }
+
+      .communication-qos-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 12px;
+      }
+
+      .communication-qos-card {
+        border: 1px solid #d8d8d8;
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 12px;
+      }
+
+      .communication-qos-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+
+      .communication-qos-title {
+        font-weight: 600;
+      }
+
+      .communication-qos-subtitle {
+        font-size: 12px;
+        color: #666666;
+      }
+
+      .communication-qos-metrics {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .communication-qos-metric {
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        background: #f9fafb;
+        padding: 8px;
+      }
+
+      .communication-qos-metric-label {
+        font-size: 12px;
+        color: #666666;
+      }
+
+      .communication-qos-metric-value {
+        font-size: 18px;
+        font-weight: 600;
+        line-height: 1.2;
+      }
+
+      .communication-status-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #ffffff;
+      }
+
+      .communication-status-table th,
+      .communication-status-table td {
+        border: 1px solid #e5e7eb;
+        padding: 10px;
+        vertical-align: top;
+        font-size: 14px;
+      }
+
+      .communication-status-table th {
+        background: #f3f4f6;
+        text-align: left;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+      }
+
+      .status-pill.good {
+        background: #d1fae5;
+        color: #065f46;
+      }
+
+      .status-pill.warning {
+        background: #fef3c7;
+        color: #92400e;
+      }
+
+      .status-pill.invalid {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+
+      .status-pill.neutral {
+        background: #e5e7eb;
+        color: #374151;
+      }
+
+      .channel-status-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .channel-status-item {
+        min-width: 150px;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        background: #f9fafb;
+        padding: 8px;
+      }
+
+      .channel-status-title {
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+
+      .channel-status-flags {
+        font-size: 12px;
+        color: #666666;
+        margin-top: 4px;
+      }
+
       .phasor-row {
         display: flex;
         gap: 16px;
@@ -429,7 +594,32 @@ var voltageConfig = createChartConfig('Voltage', 'Voltage (V)');
         <div class="top-level-tab-panel" id="communicationTab" role="tabpanel" aria-labelledby="communicationTabButton">
           <div class="communication-panel">
             <h5>Communication</h5>
-            <div class="text-muted">Communication content not yet implemented.</div>
+            <div class="communication-summary">
+              <div class="communication-summary-card">
+                <div class="communication-summary-label">Active SV streams</div>
+                <div class="communication-summary-value" id="communicationStreamCount">0</div>
+              </div>
+              <div class="communication-summary-card">
+                <div class="communication-summary-label">Streams with issues</div>
+                <div class="communication-summary-value" id="communicationIssueCount">0</div>
+              </div>
+              <div class="communication-summary-card">
+                <div class="communication-summary-label">Interface</div>
+                <div class="communication-summary-value" id="communicationInterfaceName">-</div>
+              </div>
+              <div class="communication-summary-card">
+                <div class="communication-summary-label">Link speed</div>
+                <div class="communication-summary-value" id="communicationLinkSpeed">-</div>
+              </div>
+            </div>
+            <div class="communication-section">
+              <div class="communication-section-title">Communication QoS</div>
+              <div id="communicationQosWrap" class="text-muted">No communication QoS data available yet.</div>
+            </div>
+            <div class="communication-section">
+              <div class="communication-section-title">LSVS Status</div>
+              <div id="communicationStatusTableWrap" class="text-muted">No sampled value stream status available yet.</div>
+            </div>
           </div>
         </div>
     </div>
@@ -1153,6 +1343,151 @@ function updatePhasorTitles(showCurrentSequenceComponents, showVoltageSequenceCo
   document.getElementById('voltageMeterTitle').textContent = showVoltageSequenceComponents ? 'Voltage Sequence Components' : 'Voltage RMS';
 }
 
+function renderStatusPill(state, label) {
+  var normalizedState = state || 'neutral';
+  var text = label || normalizedState;
+  return '<span class="status-pill ' + normalizedState + '">' + text + '</span>';
+}
+
+function formatChannelFlags(flags) {
+  if (!flags || flags.length === 0) {
+    return 'No flags';
+  }
+
+  return flags.join(', ');
+}
+
+function formatBandwidth(bitsPerSecond) {
+  if (bitsPerSecond === null || bitsPerSecond === undefined) {
+    return 'N/A';
+  }
+  if (bitsPerSecond >= 1000000) {
+    return (bitsPerSecond / 1000000).toFixed(3) + ' Mbps';
+  }
+  if (bitsPerSecond >= 1000) {
+    return (bitsPerSecond / 1000).toFixed(3) + ' Kbps';
+  }
+  return bitsPerSecond.toFixed(2) + ' bps';
+}
+
+function formatRate(value, unit) {
+  if (value === null || value === undefined) {
+    return 'N/A';
+  }
+  return value.toFixed(3) + ' ' + unit;
+}
+
+function formatLinkSpeed(networkInfo) {
+  if (!networkInfo || networkInfo.speedMbps === null || networkInfo.speedMbps === undefined) {
+    return 'Unknown';
+  }
+  return networkInfo.speedMbps + ' Mbps';
+}
+
+function renderCommunicationStatus(streamInfo, networkInfo) {
+  var tableWrap = document.getElementById('communicationStatusTableWrap');
+  var qosWrap = document.getElementById('communicationQosWrap');
+  var streamCount = document.getElementById('communicationStreamCount');
+  var issueCount = document.getElementById('communicationIssueCount');
+  var interfaceName = document.getElementById('communicationInterfaceName');
+  var linkSpeed = document.getElementById('communicationLinkSpeed');
+  var streamIds = Object.keys(streamInfo || {});
+  var issues = 0;
+
+  interfaceName.textContent = networkInfo && networkInfo.interface ? networkInfo.interface : '-';
+  linkSpeed.textContent = formatLinkSpeed(networkInfo);
+  streamCount.textContent = streamIds.length;
+
+  if (streamIds.length === 0) {
+    issueCount.textContent = '0';
+    qosWrap.className = 'text-muted';
+    qosWrap.innerHTML = 'No communication QoS data available yet.';
+    tableWrap.className = 'text-muted';
+    tableWrap.innerHTML = 'No sampled value stream status available yet.';
+    return;
+  }
+
+  var qosCards = [];
+  var rows = streamIds.sort().map(function(svID) {
+    var info = streamInfo[svID] || {};
+    var lsvs = info.lsvs || {};
+    var qos = info.qos || {};
+    var overall = lsvs.overall || 'neutral';
+    var channels = lsvs.channels || {};
+    var channelIds = Object.keys(channels).sort(function(a, b) {
+      return parseInt(a, 10) - parseInt(b, 10);
+    });
+
+    var lossPercent = qos.lossPercent || 0;
+    if (overall !== 'good' || lossPercent > 5) {
+      issues++;
+    }
+
+    qosCards.push('' +
+      '<div class="communication-qos-card">' +
+        '<div class="communication-qos-header">' +
+          '<div>' +
+            '<div class="communication-qos-title">' + svID + '</div>' +
+            '<div class="communication-qos-subtitle">' + (info.src || '-') + ' | APPID ' + (info.appid !== undefined ? info.appid : '-') + '</div>' +
+          '</div>' +
+          renderStatusPill(lossPercent > 5 ? 'warning' : 'good', lossPercent > 5 ? 'degraded' : 'stable') +
+        '</div>' +
+        '<div class="communication-qos-metrics">' +
+          '<div class="communication-qos-metric"><div class="communication-qos-metric-label">Bandwidth</div><div class="communication-qos-metric-value">' + formatBandwidth(qos.bandwidthBps) + '</div></div>' +
+          '<div class="communication-qos-metric"><div class="communication-qos-metric-label">Packet Rate</div><div class="communication-qos-metric-value">' + formatRate(qos.packetRatePps, 'pps') + '</div></div>' +
+          '<div class="communication-qos-metric"><div class="communication-qos-metric-label">Jitter</div><div class="communication-qos-metric-value">' + formatRate(qos.jitterMs, 'ms') + '</div></div>' +
+          '<div class="communication-qos-metric"><div class="communication-qos-metric-label">Propagation Delay</div><div class="communication-qos-metric-value">' + formatRate(qos.propagationDelayMs, 'ms') + '</div></div>' +
+          '<div class="communication-qos-metric"><div class="communication-qos-metric-label">Loss</div><div class="communication-qos-metric-value">' + formatRate(qos.lossPercent, '%') + '</div></div>' +
+          '<div class="communication-qos-metric"><div class="communication-qos-metric-label">Packets</div><div class="communication-qos-metric-value">' + (qos.packetsReceived !== undefined ? qos.packetsReceived : 'N/A') + '</div></div>' +
+        '</div>' +
+      '</div>');
+
+    var channelHtml = channelIds.map(function(channelId) {
+      var channel = channels[channelId];
+      return '' +
+        '<div class="channel-status-item">' +
+          '<div class="channel-status-title">Ch ' + channelId + '</div>' +
+          renderStatusPill(channel.state, channel.validity) +
+          '<div class="channel-status-flags">Quality: ' + channel.hex + '</div>' +
+          '<div class="channel-status-flags">Flags: ' + formatChannelFlags(channel.flags) + '</div>' +
+        '</div>';
+    }).join('');
+
+    if (!channelHtml) {
+      channelHtml = '<span class="text-muted">No channel status available.</span>';
+    }
+
+    return '' +
+      '<tr>' +
+        '<td>' + svID + '</td>' +
+        '<td>' + (info.src || '-') + '</td>' +
+        '<td>' + (info.appid !== undefined ? info.appid : '-') + '</td>' +
+        '<td>' + renderStatusPill(overall, overall) + '</td>' +
+        '<td>' + renderStatusPill(overall === 'good' ? 'good' : 'neutral', (lsvs.smpSyncLabel || 'unknown')) + '</td>' +
+        '<td><div class="channel-status-list">' + channelHtml + '</div></td>' +
+      '</tr>';
+  });
+
+  issueCount.textContent = issues;
+  qosWrap.className = '';
+  qosWrap.innerHTML = '<div class="communication-qos-grid">' + qosCards.join('') + '</div>';
+  tableWrap.className = '';
+  tableWrap.innerHTML = '' +
+    '<table class="communication-status-table">' +
+      '<thead>' +
+        '<tr>' +
+          '<th>svID</th>' +
+          '<th>Source MAC</th>' +
+          '<th>APPID</th>' +
+          '<th>LSVS</th>' +
+          '<th>smpSync</th>' +
+          '<th>Channel Status</th>' +
+        '</tr>' +
+      '</thead>' +
+      '<tbody>' + rows.join('') + '</tbody>' +
+    '</table>';
+}
+
 var latestCurrentPhasors = [];
 var latestVoltagePhasors = [];
 var latestCurrentSequencePhasors = [];
@@ -1290,6 +1625,7 @@ window.onload = function() {
     }
     const info = document.getElementById('info');
     info.innerHTML = infos;
+    renderCommunicationStatus(cdata['stream_info'], cdata['network_info']);
 
     var usedCurrent = [];
     var usedVoltage = [];
