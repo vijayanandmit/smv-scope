@@ -5,6 +5,49 @@
     <title>smvScope</title>
     <link href="static/css/bootstrap.min.css" rel="stylesheet">
     <style>
+      .top-level-tabs {
+        margin-top: 16px;
+      }
+
+      .top-level-tab-buttons {
+        display: flex;
+        gap: 8px;
+        border-bottom: 1px solid #d8d8d8;
+        margin-bottom: 16px;
+      }
+
+      .top-level-tab-button {
+        border: 1px solid transparent;
+        border-bottom: 0;
+        border-radius: 8px 8px 0 0;
+        background: #f3f4f6;
+        color: #222222;
+        padding: 10px 16px;
+        font-weight: 600;
+      }
+
+      .top-level-tab-button.active {
+        background: #ffffff;
+        border-color: #d8d8d8;
+        margin-bottom: -1px;
+      }
+
+      .top-level-tab-panel {
+        display: none;
+      }
+
+      .top-level-tab-panel.active {
+        display: block;
+      }
+
+      .communication-panel {
+        min-height: 240px;
+        border: 1px solid #d8d8d8;
+        border-radius: 8px;
+        padding: 16px;
+        background: #fafafa;
+      }
+
       .phasor-row {
         display: flex;
         gap: 16px;
@@ -93,6 +136,53 @@
       }
 
       .meter-reading {
+        font-size: 24px;
+        line-height: 1.2;
+      }
+
+      .power-panel {
+        margin-top: 16px;
+        width: 100%;
+        max-width: 520px;
+      }
+
+      .power-selector-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+
+      .power-selector-grid label {
+        display: block;
+        font-size: 12px;
+        color: #666666;
+        margin-bottom: 4px;
+      }
+
+      .power-selector-grid select {
+        width: 100%;
+      }
+
+      .power-metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 10px;
+      }
+
+      .power-metric {
+        padding: 10px;
+        border: 1px solid #e5e5e5;
+        border-radius: 6px;
+        background: #ffffff;
+      }
+
+      .power-metric-label {
+        font-size: 12px;
+        color: #666666;
+      }
+
+      .power-metric-value {
         font-size: 24px;
         line-height: 1.2;
       }
@@ -215,7 +305,13 @@ var voltageConfig = createChartConfig('Voltage', 'Voltage (V)');
 </head>
 <body>
 <div class="container">
-    <div class="row">
+    <div class="top-level-tabs">
+        <div class="top-level-tab-buttons" role="tablist" aria-label="Top level views">
+          <button type="button" class="top-level-tab-button active" id="measurementAnalysisTabButton" data-top-level-target="measurementAnalysisTab" aria-controls="measurementAnalysisTab" aria-selected="true">Measurement Analysis</button>
+          <button type="button" class="top-level-tab-button" id="communicationTabButton" data-top-level-target="communicationTab" aria-controls="communicationTab" aria-selected="false">Communication</button>
+        </div>
+        <div class="top-level-tab-panel active" id="measurementAnalysisTab" role="tabpanel" aria-labelledby="measurementAnalysisTabButton">
+<div class="row">
         <div class="col-12">
           <div class="form-group">
             <div class="stream-toolbar">
@@ -301,6 +397,20 @@ var voltageConfig = createChartConfig('Voltage', 'Voltage (V)');
                     </div>
                   </div>
                 </div>
+                <div class="meter-panel power-panel">
+                  <div class="meter-title">Power Meter</div>
+                  <div class="power-selector-grid">
+                    <div>
+                      <label for="powerVoltageSelection">Voltage phasor</label>
+                      <select class="custom-select" id="powerVoltageSelection"></select>
+                    </div>
+                    <div>
+                      <label for="powerCurrentSelection">Current phasor</label>
+                      <select class="custom-select" id="powerCurrentSelection"></select>
+                    </div>
+                  </div>
+                  <div id="powerMetrics"></div>
+                </div>
               </div>
             </div>
           </div>
@@ -311,6 +421,15 @@ var voltageConfig = createChartConfig('Voltage', 'Voltage (V)');
           </div>
           <div>
             <textarea class="form-control" rows="6" readonly id="log"></textarea>
+          </div>
+        </div>
+    </div>
+</div>
+        </div>
+        <div class="top-level-tab-panel" id="communicationTab" role="tabpanel" aria-labelledby="communicationTabButton">
+          <div class="communication-panel">
+            <h5>Communication</h5>
+            <div class="text-muted">Communication content not yet implemented.</div>
           </div>
         </div>
     </div>
@@ -675,6 +794,39 @@ function getPhasorColor(phasor, type) {
   return getPhaseColor(phasor.channel, type);
 }
 
+function normalizeAngle(angle) {
+  var normalized = angle % 360;
+  if (normalized > 180) {
+    normalized -= 360;
+  }
+  if (normalized <= -180) {
+    normalized += 360;
+  }
+  return normalized;
+}
+
+function getVoltageReferenceAngle() {
+  for (var index = 0; index < latestVoltagePhasors.length; index++) {
+    if (latestVoltagePhasors[index].label === 'V L1-E') {
+      return latestVoltagePhasors[index].angle;
+    }
+  }
+
+  return 0;
+}
+
+function rotatePhasorForReference(phasor, referenceAngle) {
+  return Object.assign({}, phasor, {
+    angle: normalizeAngle(phasor.angle - referenceAngle),
+  });
+}
+
+function rotatePhasorListForReference(phasors, referenceAngle) {
+  return phasors.map(function(phasor) {
+    return rotatePhasorForReference(phasor, referenceAngle);
+  });
+}
+
 function buildSequenceComponents(phasePhasors, type, streamId, streamCount) {
   if (phasePhasors.length < 3) {
     return [];
@@ -827,6 +979,175 @@ function renderRmsMeter(elementId, phasors, unit) {
   meter.innerHTML = html;
 }
 
+function updatePowerSelectionOptions(selectId, phasors, preferredLabel) {
+  var select = document.getElementById(selectId);
+  if (!select) {
+    return;
+  }
+
+  var previousValue = select.value;
+  select.innerHTML = '';
+
+  phasors.forEach(function(phasor) {
+    var option = document.createElement('option');
+    option.value = phasor.label;
+    option.textContent = phasor.label;
+    select.appendChild(option);
+  });
+
+  if (phasors.length === 0) {
+    return;
+  }
+
+  var nextValue = previousValue;
+  if (!nextValue || !phasors.some(function(phasor) { return phasor.label === nextValue; })) {
+    nextValue = preferredLabel;
+  }
+  if (!phasors.some(function(phasor) { return phasor.label === nextValue; })) {
+    nextValue = phasors[0].label;
+  }
+  select.value = nextValue;
+}
+
+function findSelectedPhasor(phasors, selectId) {
+  var select = document.getElementById(selectId);
+  if (!select) {
+    return null;
+  }
+
+  for (var index = 0; index < phasors.length; index++) {
+    if (phasors[index].label === select.value) {
+      return phasors[index];
+    }
+  }
+
+  return null;
+}
+
+function getPowerComponents(voltagePhasor, currentPhasor) {
+  var powerAngle = normalizeAngle(voltagePhasor.angle - currentPhasor.angle);
+  var apparentPower = voltagePhasor.magnitude * currentPhasor.magnitude;
+  var activePower = apparentPower * Math.cos(powerAngle * Math.PI / 180);
+  var reactivePower = apparentPower * Math.sin(powerAngle * Math.PI / 180);
+
+  return {
+    powerAngle: powerAngle,
+    apparentPower: apparentPower,
+    activePower: activePower,
+    reactivePower: reactivePower,
+  };
+}
+
+function formatMegaPower(value, unit) {
+  return (value / 1000000).toFixed(4) + ' M' + unit;
+}
+
+function getPhaseKey(label) {
+  if (label.indexOf('L1') !== -1) {
+    return 'L1';
+  }
+  if (label.indexOf('L2') !== -1) {
+    return 'L2';
+  }
+  if (label.indexOf('L3') !== -1) {
+    return 'L3';
+  }
+  return '';
+}
+
+function buildThreePhasePower(currentPhasors, voltagePhasors) {
+  var currentByPhase = {};
+  var voltageByPhase = {};
+
+  currentPhasors.forEach(function(phasor) {
+    var phaseKey = getPhaseKey(phasor.label);
+    if (phaseKey && !currentByPhase[phaseKey]) {
+      currentByPhase[phaseKey] = phasor;
+    }
+  });
+
+  voltagePhasors.forEach(function(phasor) {
+    var phaseKey = getPhaseKey(phasor.label);
+    if (phaseKey && !voltageByPhase[phaseKey]) {
+      voltageByPhase[phaseKey] = phasor;
+    }
+  });
+
+  var phases = ['L1', 'L2', 'L3'];
+  var pairCount = 0;
+  var totalActivePower = 0;
+  var totalReactivePower = 0;
+  var totalApparentMagnitude = 0;
+
+  phases.forEach(function(phaseKey) {
+    if (!currentByPhase[phaseKey] || !voltageByPhase[phaseKey]) {
+      return;
+    }
+
+    var phasePower = getPowerComponents(voltageByPhase[phaseKey], currentByPhase[phaseKey]);
+    pairCount++;
+    totalActivePower += phasePower.activePower;
+    totalReactivePower += phasePower.reactivePower;
+    totalApparentMagnitude += phasePower.apparentPower;
+  });
+
+  if (pairCount === 0) {
+    return null;
+  }
+
+  var totalApparentPower = Math.sqrt(totalActivePower * totalActivePower + totalReactivePower * totalReactivePower);
+
+  return {
+    pairCount: pairCount,
+    apparentPower: totalApparentPower,
+    activePower: totalActivePower,
+    reactivePower: totalReactivePower,
+    powerFactor: totalApparentPower === 0 ? 0 : totalActivePower / totalApparentPower,
+  };
+}
+
+function renderPowerMeter(currentPhasors, voltagePhasors) {
+  var powerMetrics = document.getElementById('powerMetrics');
+  if (!powerMetrics) {
+    return;
+  }
+
+  updatePowerSelectionOptions('powerVoltageSelection', voltagePhasors, 'V L1-E');
+  updatePowerSelectionOptions('powerCurrentSelection', currentPhasors, 'I L1');
+
+  var selectedVoltage = findSelectedPhasor(voltagePhasors, 'powerVoltageSelection');
+  var selectedCurrent = findSelectedPhasor(currentPhasors, 'powerCurrentSelection');
+  var threePhasePower = buildThreePhasePower(currentPhasors, voltagePhasors);
+
+  if (!selectedVoltage || !selectedCurrent) {
+    powerMetrics.innerHTML = '<div class="meter-label">Select a voltage and current phasor to calculate power.</div>';
+    return;
+  }
+
+  var selectedPower = getPowerComponents(selectedVoltage, selectedCurrent);
+  var html =
+    '<div class="meter-label mb-2">Using ' + selectedVoltage.label + ' and ' + selectedCurrent.label + '</div>' +
+    '<div class="power-metrics-grid">' +
+      '<div class="power-metric"><div class="power-metric-label">Selected Apparent Power</div><div class="power-metric-value">' + formatMegaPower(selectedPower.apparentPower, 'VA') + '</div></div>' +
+      '<div class="power-metric"><div class="power-metric-label">Selected Active Power</div><div class="power-metric-value">' + formatMegaPower(selectedPower.activePower, 'W') + '</div></div>' +
+      '<div class="power-metric"><div class="power-metric-label">Selected Reactive Power</div><div class="power-metric-value">' + formatMegaPower(selectedPower.reactivePower, 'var') + '</div></div>' +
+      '<div class="power-metric"><div class="power-metric-label">Power Angle</div><div class="power-metric-value">' + selectedPower.powerAngle.toFixed(2) + '°</div></div>' +
+    '</div>';
+
+  if (threePhasePower) {
+    html +=
+      '<div class="meter-label mt-3 mb-2">3-Phase totals from matched L1/L2/L3 pairs</div>' +
+      '<div class="power-metrics-grid">' +
+        '<div class="power-metric"><div class="power-metric-label">3-Phase Apparent Power</div><div class="power-metric-value">' + formatMegaPower(threePhasePower.apparentPower, 'VA') + '</div></div>' +
+        '<div class="power-metric"><div class="power-metric-label">3-Phase Active Power</div><div class="power-metric-value">' + formatMegaPower(threePhasePower.activePower, 'W') + '</div></div>' +
+        '<div class="power-metric"><div class="power-metric-label">3-Phase Reactive Power</div><div class="power-metric-value">' + formatMegaPower(threePhasePower.reactivePower, 'var') + '</div></div>' +
+        '<div class="power-metric"><div class="power-metric-label">3-Phase Power Factor</div><div class="power-metric-value">' + threePhasePower.powerFactor.toFixed(4) + '</div></div>' +
+      '</div>';
+  }
+
+  powerMetrics.innerHTML = html;
+}
+
 function updatePhasorTitles(showCurrentSequenceComponents, showVoltageSequenceComponents) {
   document.getElementById('currentMeterTitle').textContent = showCurrentSequenceComponents ? 'Current Sequence Components' : 'Current RMS';
   document.getElementById('voltageMeterTitle').textContent = showVoltageSequenceComponents ? 'Voltage Sequence Components' : 'Voltage RMS';
@@ -837,6 +1158,27 @@ var latestVoltagePhasors = [];
 var latestCurrentSequencePhasors = [];
 var latestVoltageSequencePhasors = [];
 var activeView = 'waveformView';
+var activeTopLevelTab = 'measurementAnalysisTab';
+
+function setActiveTopLevelTab(tabId) {
+  activeTopLevelTab = tabId;
+
+  document.querySelectorAll('.top-level-tab-button').forEach(function(button) {
+    var isActive = button.getAttribute('data-top-level-target') === tabId;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+
+  document.querySelectorAll('.top-level-tab-panel').forEach(function(panel) {
+    panel.classList.toggle('active', panel.id === tabId);
+  });
+
+  if (tabId === 'measurementAnalysisTab') {
+    window.requestAnimationFrame(function() {
+      setActiveView(activeView);
+    });
+  }
+}
 
 function setActiveView(viewId) {
   activeView = viewId;
@@ -875,8 +1217,15 @@ function renderPhasorPanels() {
 
   var showCurrentSequenceComponents = document.getElementById('showCurrentSequenceComponents').checked;
   var showVoltageSequenceComponents = document.getElementById('showVoltageSequenceComponents').checked;
-  var currentDisplayPhasors = showCurrentSequenceComponents ? latestCurrentSequencePhasors : latestCurrentPhasors;
-  var voltageDisplayPhasors = showVoltageSequenceComponents ? latestVoltageSequencePhasors : latestVoltagePhasors;
+  var referenceAngle = getVoltageReferenceAngle();
+  var currentDisplayPhasors = rotatePhasorListForReference(
+    showCurrentSequenceComponents ? latestCurrentSequencePhasors : latestCurrentPhasors,
+    referenceAngle
+  );
+  var voltageDisplayPhasors = rotatePhasorListForReference(
+    showVoltageSequenceComponents ? latestVoltageSequencePhasors : latestVoltagePhasors,
+    referenceAngle
+  );
 
   updatePhasorTitles(showCurrentSequenceComponents, showVoltageSequenceComponents);
   renderPhasorView(
@@ -895,6 +1244,7 @@ function renderPhasorPanels() {
   );
   renderRmsMeter('currentRmsMeter', currentDisplayPhasors, 'A');
   renderRmsMeter('voltageRmsMeter', voltageDisplayPhasors, 'V');
+  renderPowerMeter(currentDisplayPhasors, voltageDisplayPhasors);
 }
 
 window.onload = function() {
@@ -908,7 +1258,14 @@ window.onload = function() {
   window.voltageChart = new Chart(voltageCtx, voltageConfig);
   document.getElementById('showCurrentSequenceComponents').addEventListener('change', renderPhasorPanels);
   document.getElementById('showVoltageSequenceComponents').addEventListener('change', renderPhasorPanels);
+  document.getElementById('powerVoltageSelection').addEventListener('change', renderPhasorPanels);
+  document.getElementById('powerCurrentSelection').addEventListener('change', renderPhasorPanels);
   document.getElementById('exportComtradeButton').addEventListener('click', exportComtrade);
+  document.querySelectorAll('.top-level-tab-button').forEach(function(button) {
+    button.addEventListener('click', function() {
+      setActiveTopLevelTab(button.getAttribute('data-top-level-target'));
+    });
+  });
   document.querySelectorAll('.view-nav-button').forEach(function(button) {
     button.addEventListener('click', function() {
       setActiveView(button.getAttribute('data-view-target'));
@@ -916,7 +1273,7 @@ window.onload = function() {
   });
 
   updateMaxSampleCount();
-  setActiveView(activeView);
+  setActiveTopLevelTab(activeTopLevelTab);
 
   const stream_source = new EventSource("/stream-data");
   stream_source.onmessage = function (event) {
