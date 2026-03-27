@@ -390,111 +390,6 @@
         }
       }
 
-      .harmonics-panel {
-        border: 1px solid #d8d8d8;
-        border-radius: 8px;
-        padding: 16px;
-        background: #fafafa;
-      }
-
-      .harmonics-controls-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 12px;
-        margin-bottom: 16px;
-      }
-
-      .harmonics-summary {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 12px;
-        margin-bottom: 16px;
-      }
-
-      .harmonics-card {
-        border: 1px solid #d8d8d8;
-        border-radius: 8px;
-        background: #ffffff;
-        padding: 12px;
-      }
-
-      .harmonics-card-label {
-        font-size: 12px;
-        color: #666666;
-        margin-bottom: 4px;
-      }
-
-      .harmonics-card-value {
-        font-size: 24px;
-        line-height: 1.2;
-        font-weight: 600;
-      }
-
-      .harmonics-card-subvalue {
-        font-size: 12px;
-        color: #666666;
-        margin-top: 6px;
-      }
-
-      .harmonics-visual-grid {
-        display: grid;
-        grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-        gap: 16px;
-        align-items: start;
-      }
-
-      .harmonics-chart-card {
-        border: 1px solid #d8d8d8;
-        border-radius: 8px;
-        background: #ffffff;
-        padding: 12px;
-      }
-
-      .harmonics-chart-title {
-        font-size: 14px;
-        font-weight: 600;
-        margin-bottom: 10px;
-      }
-
-      .harmonics-chart-wrap {
-        height: 280px;
-      }
-
-      .harmonics-table-wrap {
-        margin-top: 16px;
-        border: 1px solid #d8d8d8;
-        border-radius: 8px;
-        background: #ffffff;
-        overflow: hidden;
-      }
-
-      .harmonics-table {
-        width: 100%;
-        border-collapse: collapse;
-      }
-
-      .harmonics-table th,
-      .harmonics-table td {
-        border-bottom: 1px solid #e5e7eb;
-        padding: 10px 12px;
-        font-size: 14px;
-      }
-
-      .harmonics-table th {
-        background: #f3f4f6;
-        text-align: left;
-      }
-
-      .harmonics-table tr:last-child td {
-        border-bottom: 0;
-      }
-
-      @media (max-width: 991px) {
-        .harmonics-visual-grid {
-          grid-template-columns: 1fr;
-        }
-      }
-
     </style>
 <!--suppress JSUnresolvedLibraryURL -->
 <script src="static/jquery.min.js"></script>
@@ -504,7 +399,6 @@
   <script src="static/chart.js"></script>
   <script src="static/hammer.min.js"></script>
   <script src="static/chartjs-plugin-zoom.min.js"></script>
-  <script src="static/harmonics-analysis.js"></script>
     <!--<script src="static/luxon.js"></script>-->
   <!--<script src="static/chartjs-adapter-luxon.js"></script>-->
   <!--<script src="static/chartjs-plugin-streaming@2.0.0-beta.2.js"></script>-->
@@ -572,89 +466,6 @@ function createChartConfig(title, yAxisLabel) {
 
 var currentConfig = createChartConfig('Current', 'Current (A)');
 var voltageConfig = createChartConfig('Voltage', 'Voltage (V)');
-var harmonicsSampleRate = 4800;
-
-function createHarmonicsWaveformConfig() {
-  return {
-    type: 'line',
-    data: {
-      datasets: [{
-        label: 'Captured Signal',
-        borderColor: 'rgb(13, 110, 253)',
-        backgroundColor: 'rgba(13, 110, 253, 0.12)',
-        fill: false,
-        data: [],
-        pointRadius: 0,
-        borderWidth: 1.5,
-        tension: 0,
-        parsing: false,
-      }],
-    },
-    options: {
-      animation: false,
-      maintainAspectRatio: false,
-      scales: {
-        x: {
-          title: {
-            display: true,
-            text: 'Sample Index',
-          },
-        },
-        y: {
-          title: {
-            display: true,
-            text: 'Amplitude',
-          },
-        },
-      },
-      plugins: {
-        legend: {
-          display: false,
-        },
-      },
-    },
-  };
-}
-
-function createHarmonicsSpectrumConfig() {
-  return {
-    type: 'bar',
-    data: {
-      labels: [],
-      datasets: [{
-        label: 'Harmonic Magnitude (%)',
-        backgroundColor: 'rgba(255, 159, 64, 0.75)',
-        borderColor: 'rgb(255, 159, 64)',
-        borderWidth: 1,
-        data: [],
-      }],
-    },
-    options: {
-      animation: false,
-      maintainAspectRatio: false,
-      scales: {
-        x: {
-          title: {
-            display: true,
-            text: 'Harmonic Order',
-          },
-        },
-        y: {
-          beginAtZero: true,
-          title: {
-            display: true,
-            text: 'Relative Amplitude (%)',
-          },
-        },
-      },
-      plugins: {
-        legend: {
-          display: false,
-        },
-      },
-    },
-  };
-}
 </script>
 </head>
 <body>
@@ -813,101 +624,9 @@ function createHarmonicsSpectrumConfig() {
           </div>
         </div>
         <div class="top-level-tab-panel" id="harmonicsTab" role="tabpanel" aria-labelledby="harmonicsTabButton">
-          <div class="harmonics-panel">
+          <div class="communication-panel">
             <h5>Harmonics</h5>
-            <div class="harmonics-controls-grid">
-              <div class="form-group mb-0">
-                <label for="harmonicsSignalSelection">Signal</label>
-                <select class="custom-select" id="harmonicsSignalSelection"></select>
-              </div>
-              <div class="form-group mb-0">
-                <label for="harmonicsCount">Harmonics to show</label>
-                <select class="custom-select" id="harmonicsCount">
-                  <option value="5">5</option>
-                  <option value="10">10</option>
-                  <option value="15">15</option>
-                  <option value="20">20</option>
-                  <option value="25" selected>25</option>
-                </select>
-              </div>
-              <div class="form-group mb-0">
-                <label for="harmonicsWindowSize">Window / sample range</label>
-                <select class="custom-select" id="harmonicsWindowSize">
-                  <option value="400">400 samples</option>
-                  <option value="800">800 samples</option>
-                  <option value="1600">1600 samples</option>
-                  <option value="2400">2400 samples</option>
-                  <option value="3200">3200 samples</option>
-                  <option value="4800" selected>4800 samples</option>
-                </select>
-              </div>
-              <div class="form-group mb-0">
-                <label for="harmonicsSmoothingBins">Smoothing / peak search</label>
-                <select class="custom-select" id="harmonicsSmoothingBins">
-                  <option value="0">Off</option>
-                  <option value="1" selected>Low</option>
-                  <option value="2">Medium</option>
-                  <option value="3">High</option>
-                  <option value="4">Max</option>
-                </select>
-              </div>
-              <div class="form-group mb-0">
-                <label for="harmonicsThresholdPercent">Peak threshold (%)</label>
-                <input type="number" class="form-control" id="harmonicsThresholdPercent" min="0" max="100" step="0.1" value="0">
-              </div>
-            </div>
-            <div class="harmonics-summary" id="harmonicsSummary">
-              <div class="harmonics-card">
-                <div class="harmonics-card-label">Frequency</div>
-                <div class="harmonics-card-value">-</div>
-              </div>
-              <div class="harmonics-card">
-                <div class="harmonics-card-label">Fundamental RMS</div>
-                <div class="harmonics-card-value">-</div>
-              </div>
-              <div class="harmonics-card">
-                <div class="harmonics-card-label">THD</div>
-                <div class="harmonics-card-value">-</div>
-              </div>
-              <div class="harmonics-card">
-                <div class="harmonics-card-label">Detection</div>
-                <div class="harmonics-card-value">-</div>
-              </div>
-            </div>
-            <div class="harmonics-visual-grid">
-              <div class="harmonics-chart-card">
-                <div class="harmonics-chart-title">Time-Domain Signal</div>
-                <div class="harmonics-chart-wrap">
-                  <canvas id="harmonicsWaveformChart"></canvas>
-                </div>
-              </div>
-              <div class="harmonics-chart-card">
-                <div class="harmonics-chart-title">Harmonic Spectrum</div>
-                <div class="harmonics-chart-wrap">
-                  <canvas id="harmonicsSpectrumChart"></canvas>
-                </div>
-              </div>
-            </div>
-            <div class="harmonics-table-wrap">
-              <table class="harmonics-table">
-                <thead>
-                  <tr>
-                    <th>Order</th>
-                    <th>Frequency (Hz)</th>
-                    <th>Matched (Hz)</th>
-                    <th>RMS</th>
-                    <th>Peak</th>
-                    <th>Relative (%)</th>
-                    <th>Phase (deg)</th>
-                  </tr>
-                </thead>
-                <tbody id="harmonicsTableBody">
-                  <tr>
-                    <td colspan="7" class="text-muted">Waiting for waveform data.</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            <div class="text-muted">Harmonics view placeholder.</div>
           </div>
         </div>
     </div>
@@ -1776,230 +1495,12 @@ function renderCommunicationStatus(streamInfo, networkInfo) {
     '</table>';
 }
 
-function getSignalOptionLabel(svID, channel) {
-  var quantity = parseInt(channel, 10) < 4 ? 'Current' : 'Voltage';
-  return 'Stream ' + svID + ' - ' + getPhasorLabel(channel, parseInt(channel, 10) < 4 ? 'current' : 'voltage') + ' (' + quantity + ' ch ' + channel + ')';
-}
-
-function updateHarmonicsSignalSelection() {
-  var select = document.getElementById('harmonicsSignalSelection');
-  if (!select) {
-    return;
-  }
-
-  var previousValue = select.value;
-  var signalKeys = Object.keys(latestWaveformSignals).sort();
-  select.innerHTML = '';
-
-  signalKeys.forEach(function(signalKey) {
-    var signal = latestWaveformSignals[signalKey];
-    var option = document.createElement('option');
-    option.value = signalKey;
-    option.textContent = signal.label;
-    select.appendChild(option);
-  });
-
-  if (!signalKeys.length) {
-    activeHarmonicsSignalKey = '';
-    return;
-  }
-
-  if (previousValue && latestWaveformSignals[previousValue]) {
-    activeHarmonicsSignalKey = previousValue;
-  }
-  else if (activeHarmonicsSignalKey && latestWaveformSignals[activeHarmonicsSignalKey]) {
-    select.value = activeHarmonicsSignalKey;
-    return;
-  }
-  else {
-    activeHarmonicsSignalKey = signalKeys[0];
-  }
-
-  select.value = activeHarmonicsSignalKey;
-}
-
-function clearHarmonicsTable(message) {
-  var tableBody = document.getElementById('harmonicsTableBody');
-  if (!tableBody) {
-    return;
-  }
-
-  tableBody.innerHTML = '<tr><td colspan="7" class="text-muted">' + message + '</td></tr>';
-}
-
-function updateHarmonicsSummaryCards(cards) {
-  var summary = document.getElementById('harmonicsSummary');
-  if (!summary) {
-    return;
-  }
-
-  summary.innerHTML = cards.map(function(card) {
-    var subvalue = card.subvalue ? '<div class="harmonics-card-subvalue">' + card.subvalue + '</div>' : '';
-    return '' +
-      '<div class="harmonics-card">' +
-        '<div class="harmonics-card-label">' + card.label + '</div>' +
-        '<div class="harmonics-card-value">' + card.value + '</div>' +
-        subvalue +
-      '</div>';
-  }).join('');
-}
-
-function resetHarmonicsOutput(message) {
-  updateHarmonicsSummaryCards([
-    { label: 'Frequency', value: '-', subvalue: message },
-    { label: 'Fundamental RMS', value: '-' },
-    { label: 'THD', value: '-' },
-    { label: 'Detection', value: '-' },
-  ]);
-  clearHarmonicsTable(message);
-
-  if (window.harmonicsWaveformChart) {
-    window.harmonicsWaveformChart.data.datasets[0].data = [];
-    window.harmonicsWaveformChart.update('none');
-  }
-  if (window.harmonicsSpectrumChart) {
-    window.harmonicsSpectrumChart.data.labels = [];
-    window.harmonicsSpectrumChart.data.datasets[0].data = [];
-    window.harmonicsSpectrumChart.update('none');
-  }
-}
-
-function readHarmonicsControls() {
-  return {
-    harmonicCount: Math.max(1, Math.min(25, parseInt(document.getElementById('harmonicsCount').value, 10) || 25)),
-    windowSize: Math.max(80, parseInt(document.getElementById('harmonicsWindowSize').value, 10) || 4800),
-    smoothingBins: Math.max(0, parseInt(document.getElementById('harmonicsSmoothingBins').value, 10) || 0),
-    thresholdPercent: Math.max(0, parseFloat(document.getElementById('harmonicsThresholdPercent').value) || 0),
-  };
-}
-
-function renderHarmonicsWaveformChart(values, signalLabel) {
-  if (!window.harmonicsWaveformChart) {
-    return;
-  }
-
-  window.harmonicsWaveformChart.data.datasets[0].label = signalLabel;
-  window.harmonicsWaveformChart.data.datasets[0].data = values.map(function(value, index) {
-    return {
-      x: index + 1,
-      y: value,
-    };
-  });
-  window.harmonicsWaveformChart.update('none');
-}
-
-function renderHarmonicsSpectrumChart(harmonics) {
-  if (!window.harmonicsSpectrumChart) {
-    return;
-  }
-
-  window.harmonicsSpectrumChart.data.labels = harmonics.map(function(harmonic) {
-    return harmonic.order + 'x';
-  });
-  window.harmonicsSpectrumChart.data.datasets[0].data = harmonics.map(function(harmonic) {
-    return Number(harmonic.relativePercent.toFixed(3));
-  });
-  window.harmonicsSpectrumChart.update('none');
-}
-
-function renderHarmonicsTable(harmonics) {
-  var tableBody = document.getElementById('harmonicsTableBody');
-  if (!tableBody) {
-    return;
-  }
-
-  var harmonicRows = harmonics.filter(function(harmonic) {
-    return harmonic.order >= 2;
-  });
-
-  if (!harmonicRows.length) {
-    clearHarmonicsTable('No harmonics available for the selected range.');
-    return;
-  }
-
-  tableBody.innerHTML = harmonicRows.map(function(harmonic) {
-    return '' +
-      '<tr>' +
-        '<td>' + harmonic.order + 'x</td>' +
-        '<td>' + harmonic.targetFrequencyHz.toFixed(3) + '</td>' +
-        '<td>' + harmonic.matchedFrequencyHz.toFixed(3) + '</td>' +
-        '<td>' + harmonic.rmsAmplitude.toFixed(4) + '</td>' +
-        '<td>' + harmonic.peakAmplitude.toFixed(4) + '</td>' +
-        '<td>' + harmonic.relativePercent.toFixed(3) + '</td>' +
-        '<td>' + harmonic.phaseDeg.toFixed(2) + '</td>' +
-      '</tr>';
-  }).join('');
-}
-
-function renderHarmonicsAnalysis() {
-  if (!document.getElementById('harmonicsSignalSelection')) {
-    return;
-  }
-
-  if (!activeHarmonicsSignalKey) {
-    activeHarmonicsSignalKey = document.getElementById('harmonicsSignalSelection').value;
-  }
-
-  var signal = latestWaveformSignals[activeHarmonicsSignalKey];
-  if (!signal || !signal.values || !signal.values.length) {
-    resetHarmonicsOutput('Waiting for waveform data.');
-    return;
-  }
-
-  var controls = readHarmonicsControls();
-  var windowSize = Math.min(controls.windowSize, signal.values.length);
-  var windowedValues = signal.values.slice(signal.values.length - windowSize);
-
-  if (windowedValues.length < 80) {
-    resetHarmonicsOutput('Need at least 80 samples to estimate harmonics.');
-    return;
-  }
-
-  var analysis = smvHarmonics.analyzeSignal(windowedValues, harmonicsSampleRate, {
-    harmonicCount: controls.harmonicCount,
-    smoothingBins: controls.smoothingBins,
-    thresholdPercent: controls.thresholdPercent,
-    nominalHz: 60,
-    minHz: 45,
-    maxHz: 75,
-  });
-
-  updateHarmonicsSummaryCards([
-    {
-      label: 'Frequency',
-      value: analysis.frequencyHz ? analysis.frequencyHz.toFixed(4) + ' Hz' : '-',
-      subvalue: 'Zero-crossing: ' + (analysis.zeroCrossingHz ? analysis.zeroCrossingHz.toFixed(4) + ' Hz' : 'n/a') + ' | Autocorr: ' + (analysis.autocorrelationHz ? analysis.autocorrelationHz.toFixed(4) + ' Hz' : 'n/a'),
-    },
-    {
-      label: 'Fundamental RMS',
-      value: analysis.fundamentalAmplitude.toFixed(4),
-      subvalue: 'Signal: ' + signal.label,
-    },
-    {
-      label: 'THD',
-      value: analysis.totalHarmonicDistortionPercent.toFixed(3) + '%',
-      subvalue: 'Window: ' + windowedValues.length + ' samples @ ' + harmonicsSampleRate + ' Hz',
-    },
-    {
-      label: 'Detection',
-      value: analysis.method || 'none',
-      subvalue: 'Spectral peak: ' + (analysis.spectralPeakHz ? analysis.spectralPeakHz.toFixed(4) + ' Hz' : 'n/a'),
-    },
-  ]);
-
-  renderHarmonicsWaveformChart(windowedValues, signal.label);
-  renderHarmonicsSpectrumChart(analysis.harmonics);
-  renderHarmonicsTable(analysis.harmonics);
-}
-
 var latestCurrentPhasors = [];
 var latestVoltagePhasors = [];
 var latestCurrentSequencePhasors = [];
 var latestVoltageSequencePhasors = [];
-var latestWaveformSignals = {};
 var activeView = 'waveformView';
 var activeTopLevelTab = 'measurementAnalysisTab';
-var activeHarmonicsSignalKey = '';
 
 function setActiveTopLevelTab(tabId) {
   activeTopLevelTab = tabId;
@@ -2017,19 +1518,6 @@ function setActiveTopLevelTab(tabId) {
   if (tabId === 'measurementAnalysisTab') {
     window.requestAnimationFrame(function() {
       setActiveView(activeView);
-    });
-    return;
-  }
-
-  if (tabId === 'harmonicsTab') {
-    window.requestAnimationFrame(function() {
-      renderHarmonicsAnalysis();
-      if (window.harmonicsWaveformChart) {
-        window.harmonicsWaveformChart.resize();
-      }
-      if (window.harmonicsSpectrumChart) {
-        window.harmonicsSpectrumChart.resize();
-      }
     });
   }
 }
@@ -2108,25 +1596,13 @@ window.onload = function() {
   document.getElementById('voltagePhasorChart').style.height = smvChartHeight + 'px';
   const currentCtx = document.getElementById('currentChart').getContext('2d');
   const voltageCtx = document.getElementById('voltageChart').getContext('2d');
-  const harmonicsWaveformCtx = document.getElementById('harmonicsWaveformChart').getContext('2d');
-  const harmonicsSpectrumCtx = document.getElementById('harmonicsSpectrumChart').getContext('2d');
   window.currentChart = new Chart(currentCtx, currentConfig);
   window.voltageChart = new Chart(voltageCtx, voltageConfig);
-  window.harmonicsWaveformChart = new Chart(harmonicsWaveformCtx, createHarmonicsWaveformConfig());
-  window.harmonicsSpectrumChart = new Chart(harmonicsSpectrumCtx, createHarmonicsSpectrumConfig());
   document.getElementById('showCurrentSequenceComponents').addEventListener('change', renderPhasorPanels);
   document.getElementById('showVoltageSequenceComponents').addEventListener('change', renderPhasorPanels);
   document.getElementById('powerVoltageSelection').addEventListener('change', renderPhasorPanels);
   document.getElementById('powerCurrentSelection').addEventListener('change', renderPhasorPanels);
   document.getElementById('exportComtradeButton').addEventListener('click', exportComtrade);
-  document.getElementById('harmonicsSignalSelection').addEventListener('change', function(event) {
-    activeHarmonicsSignalKey = event.target.value;
-    renderHarmonicsAnalysis();
-  });
-  document.getElementById('harmonicsCount').addEventListener('change', renderHarmonicsAnalysis);
-  document.getElementById('harmonicsWindowSize').addEventListener('change', renderHarmonicsAnalysis);
-  document.getElementById('harmonicsSmoothingBins').addEventListener('change', renderHarmonicsAnalysis);
-  document.getElementById('harmonicsThresholdPercent').addEventListener('input', renderHarmonicsAnalysis);
   document.querySelectorAll('.top-level-tab-button').forEach(function(button) {
     button.addEventListener('click', function() {
       setActiveTopLevelTab(button.getAttribute('data-top-level-target'));
@@ -2139,7 +1615,6 @@ window.onload = function() {
   });
 
   updateMaxSampleCount();
-  resetHarmonicsOutput('Waiting for waveform data.');
   setActiveTopLevelTab(activeTopLevelTab);
 
   const stream_source = new EventSource("/stream-data");
@@ -2165,7 +1640,6 @@ window.onload = function() {
     var voltagePhasors = [];
     var currentSequencePhasors = [];
     var voltageSequencePhasors = [];
-    var waveformSignals = {};
     var streamCount = Object.keys(cdata['dataSets']).length;
     for(var svID in cdata['dataSets']) { //streams
       var streamSamples = cdata['dataSets'][svID];
@@ -2193,7 +1667,6 @@ window.onload = function() {
 
         curDataSet.length = 0;
         curDataSet.data = []; //clear the data
-        var waveformValues = [];
 
         var index = 0;
         for(var idx = 1; idx < maxSampleCount; idx++) {
@@ -2205,7 +1678,6 @@ window.onload = function() {
                 x: smpCnt,
                 y: yval,
               });
-              waveformValues.push(yval);
               index++;
               continue;
             }
@@ -2215,15 +1687,7 @@ window.onload = function() {
             x: idx,
             y: 0,
           });
-          waveformValues.push(0);
         }
-
-        waveformSignals[svID + ':' + channel] = {
-          svID: svID,
-          channel: channel,
-          label: getSignalOptionLabel(svID, channel),
-          values: waveformValues,
-        };
 
         var phasor = getChannelPhasor(streamSamples, channel, chartState.yAxisScale);
         if (phasor.magnitude > 0) {
@@ -2267,10 +1731,7 @@ window.onload = function() {
     latestVoltagePhasors = voltagePhasors;
     latestCurrentSequencePhasors = currentSequencePhasors;
     latestVoltageSequencePhasors = voltageSequencePhasors;
-    latestWaveformSignals = waveformSignals;
-    updateHarmonicsSignalSelection();
     renderPhasorPanels();
-    renderHarmonicsAnalysis();
   }
   
   const log_source = new EventSource("/log-data");
